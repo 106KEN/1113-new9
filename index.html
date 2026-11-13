@@ -1,0 +1,2182 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2026 美歐戰略情報互動地圖 // IMF GEOSPATIAL COMMAND</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <style>
+    :root {
+      --bg-void: #080706;
+      --bg-ocean: #0c0a08;
+      --bg-panel: rgba(15, 12, 9, 0.88);
+      --bg-panel-solid: #120e0b;
+      --border-bronze: rgba(198, 146, 85, 0.34);
+      --border-bright: rgba(240, 186, 114, 0.72);
+      --text-primary: #f2e6d5;
+      --text-secondary: #b9a389;
+      --text-muted: #7c6a55;
+      --accent-gold: #f5c26b;
+      --accent-amber: #d49449;
+      --accent-copper: #e07b39;
+      --accent-teal: #58b8b0;
+      --accent-sand: #d2ae7e;
+      --font-sans: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, Menlo, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-void);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Subtle tactical scanlines & radial vignette */
+    .hud-overlay-fx {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5;
+      background:
+        radial-gradient(circle at 50% 50%, transparent 56%, rgba(4, 3, 2, 0.72) 100%),
+        repeating-linear-gradient(
+          to bottom,
+          rgba(212, 148, 73, 0.015) 0px,
+          rgba(212, 148, 73, 0.015) 1px,
+          transparent 1px,
+          transparent 3px
+        );
+    }
+
+    /* Top Header HUD */
+    .top-hud {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 58px;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 0 18px;
+      background: linear-gradient(180deg, rgba(14, 11, 8, 0.96) 0%, rgba(14, 11, 8, 0.84) 100%);
+      border-bottom: 1px solid var(--border-bronze);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-emblem {
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--border-bright);
+      display: grid;
+      place-items: center;
+      position: relative;
+      background: rgba(212, 148, 73, 0.08);
+      flex-shrink: 0;
+    }
+
+    .brand-emblem::before,
+    .brand-emblem::after {
+      content: '';
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      border-color: var(--accent-gold);
+      border-style: solid;
+    }
+    .brand-emblem::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+    .brand-emblem::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+    .brand-titles {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    .brand-sub {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 1.8px;
+      color: var(--accent-amber);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #6ee7b7;
+      box-shadow: 0 0 8px #6ee7b7;
+      animation: pulseDot 2s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.8); }
+    }
+
+    .brand-main {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    /* Controls & Search */
+    .hud-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: nowrap;
+    }
+
+    .search-wrap {
+      position: relative;
+      width: 220px;
+    }
+
+    .search-input {
+      width: 100%;
+      height: 32px;
+      padding: 0 28px 0 10px;
+      background: rgba(24, 19, 14, 0.9);
+      border: 1px solid var(--border-bronze);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-gold);
+      box-shadow: 0 0 12px rgba(245, 194, 107, 0.16);
+    }
+
+    .search-icon {
+      position: absolute;
+      right: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent-amber);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .search-dropdown {
+      position: absolute;
+      top: 36px;
+      left: 0;
+      right: 0;
+      max-height: 290px;
+      overflow-y: auto;
+      background: rgba(16, 13, 10, 0.97);
+      border: 1px solid var(--border-bright);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.75);
+      display: none;
+      z-index: 60;
+    }
+
+    .search-dropdown.open {
+      display: block;
+    }
+
+    .search-item {
+      padding: 8px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(198, 146, 85, 0.12);
+      font-size: 12px;
+    }
+
+    .search-item:hover {
+      background: rgba(212, 148, 73, 0.16);
+    }
+
+    .search-item-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(22, 17, 13, 0.8);
+      padding: 3px;
+      border: 1px solid var(--border-bronze);
+    }
+
+    .filter-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-secondary);
+      padding: 4px 8px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all 0.18s;
+      white-space: nowrap;
+    }
+
+    .filter-btn:hover {
+      color: var(--text-primary);
+      background: rgba(212, 148, 73, 0.1);
+    }
+
+    .filter-btn.active {
+      color: #120d08;
+      background: var(--accent-gold);
+      font-weight: 700;
+    }
+
+    .toggle-btn {
+      background: rgba(24, 19, 14, 0.88);
+      border: 1px solid var(--border-bronze);
+      color: var(--text-secondary);
+      height: 32px;
+      padding: 0 10px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all 0.18s;
+      white-space: nowrap;
+    }
+
+    .toggle-btn.active {
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+      background: rgba(245, 194, 107, 0.1);
+    }
+
+    .telemetry-readout {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      line-height: 1.35;
+      color: var(--text-secondary);
+      min-width: 195px;
+    }
+
+    .telemetry-readout strong {
+      color: var(--accent-gold);
+      font-weight: 600;
+    }
+
+    /* Map Canvas Container */
+    #map-container {
+      position: fixed;
+      inset: 58px 0 0 0;
+      background: radial-gradient(ellipse at 48% 45%, #13100d 0%, #0a0807 68%, #060504 100%);
+      cursor: grab;
+      z-index: 1;
+    }
+
+    #map-container:active {
+      cursor: grabbing;
+    }
+
+    #map-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* SVG Geo Styling */
+    .graticule {
+      fill: none;
+      stroke: rgba(206, 152, 86, 0.13);
+      stroke-width: 0.65px;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .graticule-major {
+      fill: none;
+      stroke: rgba(224, 169, 98, 0.24);
+      stroke-width: 0.9px;
+      stroke-dasharray: 4 4;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .country-context {
+      fill: #15120f;
+      stroke: #2a221a;
+      stroke-width: 0.6px;
+      vector-effect: non-scaling-stroke;
+      transition: fill 0.2s;
+    }
+
+    .country-context:hover {
+      fill: #1c1713;
+    }
+
+    .country-theater {
+      stroke: #c49052;
+      stroke-width: 0.85px;
+      vector-effect: non-scaling-stroke;
+      cursor: pointer;
+      transition: fill 0.18s ease, stroke 0.18s ease;
+    }
+
+    .country-theater:hover,
+    .country-theater.hovered {
+      fill: #704b2c !important;
+      stroke: #ffd27d !important;
+      stroke-width: 1.5px;
+    }
+
+    .us-states-mesh {
+      fill: none;
+      stroke: rgba(236, 184, 114, 0.26);
+      stroke-width: 0.6px;
+      stroke-dasharray: 2.5 2.5;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+
+    .coastline-glow {
+      fill: none;
+      stroke: rgba(235, 178, 102, 0.28);
+      stroke-width: 2.4px;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
+
+    .geo-label {
+      font-family: var(--font-mono);
+      fill: rgba(204, 162, 110, 0.36);
+      letter-spacing: 2px;
+      pointer-events: none;
+      text-anchor: middle;
+    }
+
+    .island-label {
+      font-family: var(--font-sans);
+      fill: rgba(232, 196, 148, 0.68);
+      pointer-events: none;
+      text-anchor: middle;
+      paint-order: stroke;
+      stroke: rgba(10, 8, 6, 0.85);
+      stroke-width: 2.5px;
+    }
+
+    /* City Markers */
+    .city-node {
+      cursor: pointer;
+    }
+
+    .city-pulse {
+      fill: none;
+      stroke: var(--accent-gold);
+      stroke-width: 1px;
+      opacity: 0;
+      animation: reticlePulse 3s infinite;
+      pointer-events: none;
+    }
+
+    @keyframes reticlePulse {
+      0% { r: 5px; opacity: 0.75; }
+      70% { r: 15px; opacity: 0; }
+      100% { r: 15px; opacity: 0; }
+    }
+
+    .city-hover-bracket {
+      fill: none;
+      stroke: #ffe09e;
+      stroke-width: 1.2px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+
+    .city-node:hover .city-hover-bracket,
+    .city-node.selected .city-hover-bracket {
+      opacity: 1;
+    }
+
+    .city-label {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      fill: #f0dfc8;
+      paint-order: stroke;
+      stroke: rgba(9, 7, 5, 0.92);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+      pointer-events: none;
+      transition: opacity 0.15s;
+    }
+
+    .city-label.tier-1 {
+      font-size: 11.5px;
+      font-weight: 700;
+      fill: #ffe6b8;
+    }
+
+    .city-node:hover .city-label,
+    .city-node.selected .city-label {
+      fill: #ffffff;
+      font-weight: 700;
+    }
+
+    /* Left Sector Quick-Nav & Zoom Controls */
+    .sector-bar {
+      position: fixed;
+      left: 16px;
+      bottom: 18px;
+      z-index: 25;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .sector-panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-bronze);
+      padding: 8px;
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 360px;
+    }
+
+    .panel-kicker {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      color: var(--accent-amber);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(198, 146, 85, 0.2);
+      padding-bottom: 4px;
+    }
+
+    .sector-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .sector-btn {
+      background: rgba(34, 26, 19, 0.82);
+      border: 1px solid rgba(198, 146, 85, 0.28);
+      color: var(--text-secondary);
+      padding: 4px 8px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all 0.16s;
+    }
+
+    .sector-btn:hover {
+      border-color: var(--accent-gold);
+      color: var(--text-primary);
+      background: rgba(212, 148, 73, 0.18);
+    }
+
+    .sector-btn.active {
+      background: rgba(245, 194, 107, 0.18);
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+      font-weight: 600;
+    }
+
+    .zoom-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .zoom-btn {
+      width: 32px;
+      height: 30px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-bronze);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 15px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: all 0.15s;
+    }
+
+    .zoom-btn:hover {
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+      background: rgba(212, 148, 73, 0.15);
+    }
+
+    .zoom-btn.wide {
+      width: auto;
+      padding: 0 10px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+    }
+
+    /* Bottom-Right Legend (Required) */
+    .legend-panel {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 25;
+      width: 248px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-bronze);
+      padding: 11px 13px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .legend-panel::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      width: 10px;
+      height: 10px;
+      border-top: 2px solid var(--accent-gold);
+      border-left: 2px solid var(--accent-gold);
+    }
+
+    .legend-section {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+    }
+
+    .legend-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-code {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-muted);
+    }
+
+    .swatch-land {
+      width: 16px;
+      height: 10px;
+      background: #483322;
+      border: 1px solid #c49052;
+      display: inline-block;
+    }
+
+    .swatch-context {
+      width: 16px;
+      height: 10px;
+      background: #15120f;
+      border: 1px solid #2e261d;
+      display: inline-block;
+    }
+
+    .swatch-state {
+      width: 16px;
+      height: 0;
+      border-top: 1.5px dashed rgba(236, 184, 114, 0.55);
+      display: inline-block;
+    }
+
+    .swatch-grid {
+      width: 16px;
+      height: 10px;
+      border: 1px solid rgba(206, 152, 86, 0.3);
+      background: linear-gradient(90deg, rgba(206, 152, 86, 0.25) 1px, transparent 1px) 7px 0 / 8px 100%,
+                  linear-gradient(0deg, rgba(206, 152, 86, 0.25) 1px, transparent 1px) 0 4px / 100% 5px;
+      display: inline-block;
+    }
+
+    /* Floating Hover Tooltip */
+    .hud-tooltip {
+      position: fixed;
+      z-index: 50;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.12s ease, transform 0.12s ease;
+      background: rgba(14, 11, 8, 0.94);
+      border: 1px solid var(--border-bright);
+      padding: 8px 11px;
+      min-width: 190px;
+      max-width: 280px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.78);
+      backdrop-filter: blur(6px);
+    }
+
+    .hud-tooltip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .tt-kicker {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 1.2px;
+      color: var(--accent-amber);
+      margin-bottom: 2px;
+    }
+
+    .tt-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .tt-en {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 400;
+      color: var(--text-secondary);
+    }
+
+    .tt-sub {
+      margin-top: 3px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    .tt-hint {
+      margin-top: 5px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(198, 146, 85, 0.2);
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--accent-gold);
+    }
+
+    /* Right Slide-Over City Intelligence Panel */
+    .city-panel {
+      position: fixed;
+      top: 72px;
+      right: 18px;
+      width: 365px;
+      max-height: calc(100vh - 285px);
+      z-index: 35;
+      background: rgba(13, 10, 8, 0.94);
+      border: 1px solid var(--border-bright);
+      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.82);
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      transform: translateX(410px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease;
+    }
+
+    .city-panel.open {
+      transform: translateX(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .cp-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-bronze);
+      background: linear-gradient(90deg, rgba(212, 148, 73, 0.14) 0%, transparent 100%);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .cp-node-id {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      color: var(--accent-amber);
+    }
+
+    .cp-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff3df;
+      margin-top: 2px;
+    }
+
+    .cp-subtitle {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .cp-close {
+      background: transparent;
+      border: 1px solid var(--border-bronze);
+      color: var(--text-secondary);
+      width: 26px;
+      height: 26px;
+      cursor: pointer;
+      font-size: 15px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .cp-close:hover {
+      border-color: var(--accent-gold);
+      color: var(--accent-gold);
+    }
+
+    .cp-body {
+      padding: 13px 14px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .cp-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .cp-badge {
+      font-size: 10.5px;
+      padding: 2px 7px;
+      border: 1px solid rgba(212, 148, 73, 0.45);
+      background: rgba(212, 148, 73, 0.12);
+      color: var(--accent-gold);
+    }
+
+    .cp-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .cp-stat {
+      background: rgba(26, 20, 15, 0.72);
+      border: 1px solid rgba(198, 146, 85, 0.22);
+      padding: 8px 9px;
+    }
+
+    .cp-stat-label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-muted);
+      letter-spacing: 0.8px;
+      margin-bottom: 3px;
+    }
+
+    .cp-stat-val {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.35;
+    }
+
+    .cp-stat-val.mono {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--accent-gold);
+    }
+
+    .cp-desc-box {
+      background: rgba(22, 17, 13, 0.65);
+      border-left: 2px solid var(--accent-amber);
+      padding: 9px 11px;
+    }
+
+    .cp-desc-title {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: var(--accent-amber);
+      margin-bottom: 5px;
+    }
+
+    .cp-desc-text {
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: #e4d4be;
+    }
+
+    .cp-footer {
+      padding: 9px 14px;
+      border-top: 1px solid rgba(198, 146, 85, 0.2);
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    .cp-action-btn {
+      flex: 1;
+      background: rgba(212, 148, 73, 0.14);
+      border: 1px solid var(--border-bronze);
+      color: var(--accent-gold);
+      padding: 6px 8px;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      transition: all 0.16s;
+    }
+
+    .cp-action-btn:hover {
+      background: var(--accent-gold);
+      color: #120d08;
+      font-weight: 700;
+    }
+
+    /* Loading Overlay */
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: #080706;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      transition: opacity 0.4s ease;
+    }
+
+    .loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loader-ring {
+      width: 56px;
+      height: 56px;
+      border: 2px solid rgba(212, 148, 73, 0.2);
+      border-top-color: var(--accent-gold);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loader-text {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: var(--accent-gold);
+    }
+
+    .loader-sub {
+      font-size: 12px;
+      color: var(--text-secondary);
+      max-width: 440px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 1120px) {
+      .telemetry-readout { display: none; }
+      .search-wrap { width: 170px; }
+    }
+
+    @media (max-width: 820px) {
+      .top-hud {
+        height: auto;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+      }
+      .hud-controls {
+        width: 100%;
+        overflow-x: auto;
+      }
+      .city-panel {
+        width: calc(100vw - 24px);
+        right: 12px;
+        top: 108px;
+        max-height: 54vh;
+      }
+      .legend-panel {
+        width: 210px;
+        right: 12px;
+        bottom: 12px;
+      }
+      .sector-bar {
+        left: 12px;
+        bottom: 12px;
+        max-width: calc(100vw - 240px);
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading Overlay -->
+  <div id="loading-screen" class="loading-screen">
+    <div class="loader-ring"></div>
+    <div class="loader-text">IMF // GEOSPATIAL TELEMETRY INITIALIZING</div>
+    <div id="loader-sub" class="loader-sub">正在載入 2026 美歐高精度國界、島嶼海岸線與座標網格資料...</div>
+  </div>
+
+  <div class="hud-overlay-fx"></div>
+
+  <!-- Top Tactical Bar -->
+  <header class="top-hud">
+    <div class="brand-block">
+      <div class="brand-emblem" title="IMF Euro-Atlantic Command">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5c26b" stroke-width="1.6">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+        </svg>
+      </div>
+      <div class="brand-titles">
+        <div class="brand-sub">
+          <span class="live-dot"></span>
+          <span>IMF // EURO-ATLANTIC INTEL CENTER • OP-2026</span>
+        </div>
+        <div class="brand-main">2026 歐洲與美國戰略情報互動地圖</div>
+      </div>
+    </div>
+
+    <div class="hud-controls">
+      <div class="search-wrap">
+        <input id="search-input" class="search-input" type="text" placeholder="搜尋國家或城市 (例: 巴黎, 紐約, 冰島)" autocomplete="off" />
+        <span class="search-icon">⌕</span>
+        <div id="search-dropdown" class="search-dropdown"></div>
+      </div>
+
+      <div class="filter-group" id="type-filters">
+        <button class="filter-btn active" data-filter="all">全部節點</button>
+        <button class="filter-btn" data-filter="capital">首都</button>
+        <button class="filter-btn" data-filter="commercial">商業</button>
+        <button class="filter-btn" data-filter="port">港口</button>
+        <button class="filter-btn" data-filter="major">主要城市</button>
+      </div>
+
+      <button id="toggle-states" class="toggle-btn active" title="切換美國州界顯示">美國州界</button>
+      <button id="toggle-islands" class="toggle-btn active" title="切換島嶼與海域標註">島嶼海域</button>
+    </div>
+
+    <div class="telemetry-readout">
+      <div id="clock-readout">2026-11-13 00:00:00 UTC</div>
+      <div><strong id="coord-readout">LAT --.--°  LON --.--°</strong> | <span id="zoom-readout">1.0x</span></div>
+    </div>
+  </header>
+
+  <!-- Interactive Map -->
+  <main id="map-container">
+    <svg id="map-svg"></svg>
+  </main>
+
+  <!-- Bottom-Left Sector Quick Navigation & Zoom -->
+  <aside class="sector-bar">
+    <div class="zoom-row">
+      <button id="zoom-in" class="zoom-btn" title="放大">+</button>
+      <button id="zoom-out" class="zoom-btn" title="縮小">−</button>
+      <button id="zoom-reset" class="zoom-btn wide" title="重設全區視野">重設視角</button>
+    </div>
+    <div class="sector-panel">
+      <div class="panel-kicker">
+        <span>THEATER SECTORS // 戰區快速定位</span>
+        <span id="visible-count">112 NODES</span>
+      </div>
+      <div class="sector-grid">
+        <button class="sector-btn active" data-sector="global">美歐全區總覽</button>
+        <button class="sector-btn" data-sector="us-main">美國本土</button>
+        <button class="sector-btn" data-sector="us-pacific">阿拉斯加/夏威夷</button>
+        <button class="sector-btn" data-sector="eu-all">歐洲全境</button>
+        <button class="sector-btn" data-sector="eu-west">西歐/中歐</button>
+        <button class="sector-btn" data-sector="eu-med">地中海/南歐</button>
+        <button class="sector-btn" data-sector="eu-north">北歐/波羅的海</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Bottom-Right Legend (Required) -->
+  <aside class="legend-panel" id="map-legend">
+    <div class="panel-kicker">
+      <span>LEGEND // 圖例說明</span>
+      <span>2026</span>
+    </div>
+    <div class="legend-section">
+      <div class="legend-row">
+        <div class="legend-left"><span class="swatch-land"></span><span>美歐監控領土與島嶼</span></div>
+        <span class="legend-code">THEATER</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-left"><span class="swatch-context"></span><span>鄰近區域地理輪廓</span></div>
+        <span class="legend-code">CONTEXT</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-left"><span class="swatch-state"></span><span>美國州界 / 次級區劃</span></div>
+        <span class="legend-code">US-STATE</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-left"><span class="swatch-grid"></span><span>經緯度座標網格</span></div>
+        <span class="legend-code">GRATICULE</span>
+      </div>
+    </div>
+    <div class="legend-section" style="border-top: 1px solid rgba(198,146,85,0.2); padding-top: 7px;">
+      <div class="legend-row">
+        <div class="legend-left">
+          <svg width="16" height="16" viewBox="-8 -8 16 16">
+            <circle r="6" fill="none" stroke="#f5c26b" stroke-width="1" stroke-dasharray="2 1.5"/>
+            <polygon points="0,-4 4,0 0,4 -4,0" fill="#f5c26b"/>
+          </svg>
+          <span>國家首都 / 聯邦首都</span>
+        </div>
+        <span class="legend-code">CAPITAL</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-left">
+          <svg width="16" height="16" viewBox="-8 -8 16 16">
+            <rect x="-4.5" y="-4.5" width="9" height="9" fill="none" stroke="#e07b39" stroke-width="1.2"/>
+            <rect x="-2" y="-2" width="4" height="4" fill="#e07b39"/>
+          </svg>
+          <span>重要商業 / 金融中心</span>
+        </div>
+        <span class="legend-code">COMMERCE</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-left">
+          <svg width="16" height="16" viewBox="-8 -8 16 16">
+            <polygon points="0,-5.5 4.8,-2.7 4.8,2.7 0,5.5 -4.8,2.7 -4.8,-2.7" fill="none" stroke="#58b8b0" stroke-width="1.2"/>
+            <circle r="2.2" fill="#58b8b0"/>
+          </svg>
+          <span>重要港口 / 海運樞紐</span>
+        </div>
+        <span class="legend-code">SEAPORT</span>
+      </div>
+      <div class="legend-row">
+        <div class="legend-left">
+          <svg width="16" height="16" viewBox="-8 -8 16 16">
+            <circle r="4.5" fill="none" stroke="#d2ae7e" stroke-width="1.1"/>
+            <circle r="2" fill="#d2ae7e"/>
+          </svg>
+          <span>區域主要大城市</span>
+        </div>
+        <span class="legend-code">METRO</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Floating Tooltip -->
+  <div id="map-tooltip" class="hud-tooltip">
+    <div id="tt-kicker" class="tt-kicker"></div>
+    <div class="tt-title">
+      <span id="tt-zh"></span>
+      <span id="tt-en" class="tt-en"></span>
+    </div>
+    <div id="tt-sub" class="tt-sub"></div>
+    <div id="tt-hint" class="tt-hint"></div>
+  </div>
+
+  <!-- Right City Detail Intelligence Panel -->
+  <section id="city-panel" class="city-panel" aria-hidden="true">
+    <div class="cp-header">
+      <div>
+        <div id="cp-node-id" class="cp-node-id">NODE // TARGET</div>
+        <div id="cp-title" class="cp-title">城市名稱</div>
+        <div id="cp-subtitle" class="cp-subtitle">City, Country</div>
+      </div>
+      <button id="cp-close" class="cp-close" title="關閉情資面板 (ESC)">✕</button>
+    </div>
+    <div class="cp-body">
+      <div id="cp-badges" class="cp-badges"></div>
+      <div class="cp-grid">
+        <div class="cp-stat">
+          <div class="cp-stat-label">所屬國家 / 區域</div>
+          <div id="cp-location" class="cp-stat-val">-</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-label">2026 估計人口</div>
+          <div id="cp-pop" class="cp-stat-val">-</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-label">地理經緯座標</div>
+          <div id="cp-coords" class="cp-stat-val mono">-</div>
+        </div>
+        <div class="cp-stat">
+          <div class="cp-stat-label">戰略分級 / 定位</div>
+          <div id="cp-role" class="cp-stat-val">-</div>
+        </div>
+      </div>
+      <div class="cp-desc-box">
+        <div class="cp-desc-title">STRATEGIC BRIEFING // 城市特色與情資摘要</div>
+        <div id="cp-desc" class="cp-desc-text"></div>
+      </div>
+    </div>
+    <div class="cp-footer">
+      <button id="cp-focus" class="cp-action-btn">🎯 鎖定放大目標</button>
+      <button id="cp-next" class="cp-action-btn">下一個節點 ▸</button>
+    </div>
+  </section>
+
+  <script>
+    // =========================================================================
+    // 1. 歐洲與美國所有國家與領土中英文對照字典 (依 ISO 3166-1 Numeric & Name)
+    // =========================================================================
+    const THEATER_COUNTRIES = {
+      // United States & Territories
+      "840": { zh: "美國", full: "美利堅合眾國", en: "United States of America", region: "北美戰區", capital: "華盛頓哥倫比亞特區", note: "含本土48州、阿拉斯加州、阿留申群島與夏威夷群島" },
+      "630": { zh: "波多黎各（美屬）", full: "波多黎各自由邦（美國）", en: "Puerto Rico", region: "北美戰區 • 加勒比海", capital: "聖胡安", note: "美國加勒比海重要海外領地與航運節點" },
+      "850": { zh: "美屬維京群島", full: "美屬維京群島", en: "U.S. Virgin Islands", region: "北美戰區 • 加勒比海", capital: "夏洛特阿馬利亞", note: "美國加勒比海領地" },
+
+      // Western Europe
+      "826": { zh: "英國", full: "大不列顛暨北愛爾蘭聯合王國", en: "United Kingdom", region: "歐洲戰區 • 西歐", capital: "倫敦", note: "含大不列顛島、北愛爾蘭、昔德蘭、奧克尼與赫布里底群島" },
+      "372": { zh: "愛爾蘭", full: "愛爾蘭共和國", en: "Ireland", region: "歐洲戰區 • 西歐", capital: "都柏林", note: "歐洲科技總部聚落與大西洋島國" },
+      "250": { zh: "法國", full: "法蘭西共和國", en: "France", region: "歐洲戰區 • 西歐", capital: "巴黎", note: "含本土與地中海科西嘉島" },
+      "056": { zh: "比利時", full: "比利時王國", en: "Belgium", region: "歐洲戰區 • 西歐", capital: "布魯塞爾", note: "歐盟與北約核心總部所在地" },
+      "528": { zh: "荷蘭", full: "荷蘭王國", en: "Netherlands", region: "歐洲戰區 • 西歐", capital: "阿姆斯特丹", note: "擁有歐洲最大海運樞紐鹿特丹港" },
+      "442": { zh: "盧森堡", full: "盧森堡大公國", en: "Luxembourg", region: "歐洲戰區 • 西歐", capital: "盧森堡市", note: "歐洲重要金融與跨境基金樞紐" },
+      "492": { zh: "摩納哥", full: "摩納哥公國", en: "Monaco", region: "歐洲戰區 • 西歐", capital: "摩納哥", note: "地中海沿岸微型主權國家與金融港" },
+      "831": { zh: "根西島（英屬）", full: "根西行政區", en: "Guernsey", region: "歐洲戰區 • 海峽群島", capital: "聖彼得港", note: "英國王室屬地" },
+      "832": { zh: "澤西島（英屬）", full: "澤西行政區", en: "Jersey", region: "歐洲戰區 • 海峽群島", capital: "聖赫利爾", note: "英國王室屬地" },
+      "833": { zh: "曼島（英屬）", full: "曼島", en: "Isle of Man", region: "歐洲戰區 • 愛爾蘭海", capital: "道格拉斯", note: "英國王室屬地" },
+      "292": { zh: "直布羅陀（英屬）", full: "直布羅陀", en: "Gibraltar", region: "歐洲戰區 • 伊比利南端", capital: "直布羅陀", note: "控制大西洋與地中海咽喉之戰略要地" },
+
+      // Central Europe
+      "276": { zh: "德國", full: "德意志聯邦共和國", en: "Germany", region: "歐洲戰區 • 中歐", capital: "柏林", note: "歐洲最大經濟體與中歐工業交通樞紐" },
+      "756": { zh: "瑞士", full: "瑞士聯邦", en: "Switzerland", region: "歐洲戰區 • 中歐", capital: "伯恩", note: "全球金融與國際組織中立重鎮" },
+      "438": { zh: "列支敦斯登", full: "列支敦斯登侯國", en: "Liechtenstein", region: "歐洲戰區 • 中歐", capital: "瓦杜茲", note: "阿爾卑斯山區精密製造與金融微國" },
+      "040": { zh: "奧地利", full: "奧地利共和國", en: "Austria", region: "歐洲戰區 • 中歐", capital: "維也納", note: "中東歐外交與多瑙河交通樞紐" },
+      "616": { zh: "波蘭", full: "波蘭共和國", en: "Poland", region: "歐洲戰區 • 中歐", capital: "華沙", note: "北約東翼核心防務與製造基地" },
+      "203": { zh: "捷克", full: "捷克共和國", en: "Czechia", region: "歐洲戰區 • 中歐", capital: "布拉格", note: "中歐精密機械、汽車與科技樞紐" },
+      "703": { zh: "斯洛伐克", full: "斯洛伐克共和國", en: "Slovakia", region: "歐洲戰區 • 中歐", capital: "布拉提斯拉瓦", note: "中歐汽車製造走廊核心" },
+      "348": { zh: "匈牙利", full: "匈牙利", en: "Hungary", region: "歐洲戰區 • 中歐", capital: "布達佩斯", note: "喀爾巴阡盆地與多瑙河流域重鎮" },
+      "705": { zh: "斯洛維尼亞", full: "斯洛維尼亞共和國", en: "Slovenia", region: "歐洲戰區 • 中南歐", capital: "盧布爾雅那", note: "連接中歐與亞得里亞海北端港口的門戶" },
+
+      // Northern Europe
+      "352": { zh: "冰島", full: "冰島共和國", en: "Iceland", region: "歐洲戰區 • 北歐", capital: "雷克雅維克", note: "北大西洋 GIUK 航道戰略島國，地熱能源先進" },
+      "578": { zh: "挪威", full: "挪威王國", en: "Norway", region: "歐洲戰區 • 北歐", capital: "奧斯陸", note: "含斯瓦爾巴群島、羅弗敦群島與北海能源基地" },
+      "744": { zh: "斯瓦爾巴群島（挪威）", full: "斯瓦爾巴與揚馬延", en: "Svalbard and Jan Mayen", region: "歐洲戰區 • 北極圈", capital: "朗伊爾城", note: "挪威北極圈戰略群島" },
+      "752": { zh: "瑞典", full: "瑞典王國", en: "Sweden", region: "歐洲戰區 • 北歐", capital: "斯德哥爾摩", note: "北約新銳成員國，含波羅的海哥特蘭島" },
+      "246": { zh: "芬蘭", full: "芬蘭共和國", en: "Finland", region: "歐洲戰區 • 北歐", capital: "赫爾辛基", note: "北歐科技與防務前線國家，含奧蘭群島" },
+      "248": { zh: "奧蘭群島（芬蘭）", full: "奧蘭自治區", en: "Åland", region: "歐洲戰區 • 波羅的海", capital: "瑪麗港", note: "芬蘭非軍事化自治群島" },
+      "208": { zh: "丹麥", full: "丹麥王國", en: "Denmark", region: "歐洲戰區 • 北歐", capital: "哥本哈根", note: "扼守波羅的海進出北海海峽，含西蘭島與菲英島" },
+      "234": { zh: "法羅群島（丹麥）", full: "法羅群島", en: "Faroe Islands", region: "歐洲戰區 • 北大西洋", capital: "托爾斯港", note: "丹麥王國自治領地" },
+      "304": { zh: "格陵蘭（丹麥王國）", full: "格陵蘭", en: "Greenland", region: "北大西洋 • 丹麥自治領土", capital: "努克", note: "北極與北大西洋重要防務與極地監測要地" },
+      "233": { zh: "愛沙尼亞", full: "愛沙尼亞共和國", en: "Estonia", region: "歐洲戰區 • 波羅的海", capital: "塔林", note: "歐洲數位治理與網路防禦先驅" },
+      "428": { zh: "拉脫維亞", full: "拉脫維亞共和國", en: "Latvia", region: "歐洲戰區 • 波羅的海", capital: "里加", note: "波羅的海航空與海運交匯中心" },
+      "440": { zh: "立陶宛", full: "立陶宛共和國", en: "Lithuania", region: "歐洲戰區 • 波羅的海", capital: "維爾紐斯", note: "波羅的海重要經濟與區域安全支點" },
+
+      // Southern Europe & Mediterranean
+      "724": { zh: "西班牙", full: "西班牙王國", en: "Spain", region: "歐洲戰區 • 南歐", capital: "馬德里", note: "含巴利阿里群島與大西洋加那利群島" },
+      "620": { zh: "葡萄牙", full: "葡萄牙共和國", en: "Portugal", region: "歐洲戰區 • 南歐", capital: "里斯本", note: "含大西洋亞速爾群島與馬德拉群島" },
+      "020": { zh: "安道爾", full: "安道爾公國", en: "Andorra", region: "歐洲戰區 • 南歐", capital: "安道爾城", note: "庇里牛斯山脈山間公國" },
+      "380": { zh: "義大利", full: "義大利共和國", en: "Italy", region: "歐洲戰區 • 南歐", capital: "羅馬", note: "含地中海西西里島與薩丁尼亞島" },
+      "336": { zh: "梵蒂岡", full: "梵蒂岡城國", en: "Vatican City", region: "歐洲戰區 • 南歐", capital: "梵蒂岡城", note: "羅馬境內全球面積最小主權國家" },
+      "674": { zh: "聖馬利諾", full: "聖馬利諾共和國", en: "San Marino", region: "歐洲戰區 • 南歐", capital: "聖馬利諾", note: "義大利半島境內歷史悠久微型共和國" },
+      "470": { zh: "馬爾他", full: "馬爾他共和國", en: "Malta", region: "歐洲戰區 • 地中海", capital: "法勒他", note: "地中海中部海運與航運轉運島國" },
+      "300": { zh: "希臘", full: "希臘共和國", en: "Greece", region: "歐洲戰區 • 南歐", capital: "雅典", note: "含克里特島、羅德島與愛琴海/愛奧尼亞諸島" },
+      "196": { zh: "賽普勒斯", full: "賽普勒斯共和國", en: "Cyprus", region: "歐洲戰區 • 東地中海", capital: "尼科西亞", note: "東地中海歐亞交匯戰略島國" },
+
+      // Balkans & Southeast Europe
+      "191": { zh: "克羅埃西亞", full: "克羅埃西亞共和國", en: "Croatia", region: "歐洲戰區 • 巴爾幹", capital: "薩格勒布", note: "亞得里亞海東岸多島嶼歐盟與申根成員" },
+      "070": { zh: "波士尼亞與赫塞哥維納", full: "波士尼亞與赫塞哥維納", en: "Bosnia and Herzegovina", region: "歐洲戰區 • 巴爾幹", capital: "塞拉耶佛", note: "巴爾幹半島內陸多元文化國家" },
+      "688": { zh: "塞爾維亞", full: "塞爾維亞共和國", en: "Serbia", region: "歐洲戰區 • 巴爾幹", capital: "貝爾格勒", note: "多瑙河與薩瓦河交匯巴爾幹交通核心" },
+      "499": { zh: "蒙特內哥羅", full: "蒙特內哥羅", en: "Montenegro", region: "歐洲戰區 • 巴爾幹", capital: "波德戈里察", note: "亞得里亞海北約成員國" },
+      "383": { zh: "科索沃", full: "科索沃共和國", en: "Kosovo", region: "歐洲戰區 • 巴爾幹", capital: "普里斯提納", note: "巴爾幹中南部關鍵區域節點" },
+      "008": { zh: "阿爾巴尼亞", full: "阿爾巴尼亞共和國", en: "Albania", region: "歐洲戰區 • 巴爾幹", capital: "地拉那", note: "亞得里亞海與愛奧尼亞海交界門戶" },
+      "807": { zh: "北馬其頓", full: "北馬其頓共和國", en: "North Macedonia", region: "歐洲戰區 • 巴爾幹", capital: "史高比耶", note: "巴爾幹半島南北陸上走廊要道" },
+      "100": { zh: "保加利亞", full: "保加利亞共和國", en: "Bulgaria", region: "歐洲戰區 • 東南歐", capital: "索菲亞", note: "2026年1月正式加入歐元區，黑海西岸門戶" },
+      "642": { zh: "羅馬尼亞", full: "羅馬尼亞", en: "Romania", region: "歐洲戰區 • 東南歐", capital: "布加勒斯特", note: "黑海與多瑙河三角洲戰略重鎮" },
+
+      // Eastern Europe & Transcontinental European Context
+      "498": { zh: "摩爾多瓦", full: "摩爾多瓦共和國", en: "Moldova", region: "歐洲戰區 • 東歐", capital: "基希涅夫", note: "位於羅馬尼亞與烏克蘭之間的東歐國家" },
+      "804": { zh: "烏克蘭", full: "烏克蘭", en: "Ukraine", region: "歐洲戰區 • 東歐", capital: "基輔", note: "歐洲面積第二大國，含黑海重要港口走廊" },
+      "112": { zh: "白俄羅斯", full: "白俄羅斯共和國", en: "Belarus", region: "歐洲戰區 • 東歐", capital: "明斯克", note: "東歐平原內陸國家" },
+      "643": { zh: "俄羅斯（歐洲部分/全境）", full: "俄羅斯聯邦", en: "Russia", region: "歐亞監控區 • 東歐", capital: "莫斯科", note: "烏拉山以西屬傳統歐洲範圍，含聖彼得堡與加里寧格勒" },
+      "792": { zh: "土耳其（含東色雷斯歐洲側）", full: "土耳其共和國", en: "Turkey", region: "東南歐 / 歐亞交界", capital: "安卡拉", note: "東色雷斯及伊斯坦堡西半部屬歐洲地理範圍，扼守黑海海峽" }
+    };
+
+    // Name-based fallback for Natural Earth edge cases (e.g. Kosovo, N. Cyprus, Vatican)
+    const THEATER_BY_NAME = {
+      "united states of america": "840",
+      "united kingdom": "826",
+      "kosovo": "383",
+      "bosnia and herz.": "070",
+      "macedonia": "807",
+      "north macedonia": "807",
+      "czechia": "203",
+      "czech republic": "203",
+      "vatican": "336",
+      "holy see": "336",
+      "faroe is.": "234",
+      "n. cyprus": "196",
+      "åland": "248",
+      "svalbard": "744"
+    };
+
+    // Surrounding Context Landmasses (for clean hover labels without visual distraction)
+    const CONTEXT_NAMES = {
+      "124": "加拿大", "484": "墨西哥", "504": "摩洛哥", "012": "阿爾及利亞",
+      "788": "突尼西亞", "434": "利比亞", "818": "埃及", "268": "喬治亞",
+      "051": "亞美尼亞", "031": "亞塞拜然", "398": "哈薩克", "760": "敘利亞",
+      "368": "伊拉克", "364": "伊朗", "400": "約旦", "682": "沙烏地阿拉伯",
+      "376": "以色列", "422": "黎巴嫩", "192": "古巴", "044": "巴哈馬",
+      "214": "多明尼加", "332": "海地", "388": "牙買加"
+    };
+
+    // Subtle brown-palette variation per theater country for crisp border separation
+    const BROWN_SHADES = ["#3e2c1d", "#483423", "#362619", "#4e3927", "#422f20", "#3a291c"];
+
+    // =========================================================================
+    // 2. 2026 美歐主要城市資料庫 (112 個涵蓋首都、商業、港口與主要城市)
+    // =========================================================================
+    const CITIES = [
+      // --- UNITED STATES ---
+      { id: "US-WAS", zh: "華盛頓哥倫比亞特區", en: "Washington, D.C.", country: "美國", region: "哥倫比亞特區", lon: -77.0369, lat: 38.9072, type: "capital", tier: 1, pop: "約 68 萬（都會區 640 萬）", tags: ["聯邦首都", "決策中樞"], desc: "美國聯邦政府與國防外交決策中樞，集中白宮、國會山莊、五角大廈及國際貨幣基金與世界銀行總部。2026年仍是跨大西洋安全與科技規範協調的核心指揮節點。" },
+      { id: "US-NYC", zh: "紐約", en: "New York City", country: "美國", region: "紐約州", lon: -74.0060, lat: 40.7128, type: "commercial", tier: 1, pop: "約 835 萬（都會區 1,960 萬）", tags: ["全球金融中心", "重要港口", "聯合國總部"], desc: "全球首要金融商業與資本市場中心，華爾街與那斯達克所在，同時擁有美國東岸吞吐量最大的紐約—紐澤西深水港群，以及聯合國總部外交核心。" },
+      { id: "US-LAX", zh: "洛杉磯", en: "Los Angeles", country: "美國", region: "加州", lon: -118.2437, lat: 34.0522, type: "port", tier: 1, pop: "約 382 萬（都會區 1,280 萬）", tags: ["太平洋第一大港", "航太娛樂", "商貿樞紐"], desc: "北美西岸最大海運與消費中心，洛杉磯港與長灘港合計為美洲貨櫃吞吐量居首的門戶港，並匯聚航太國防工業、娛樂產業與跨太平洋貿易鏈。" },
+      { id: "US-CHI", zh: "芝加哥", en: "Chicago", country: "美國", region: "伊利諾州", lon: -87.6298, lat: 41.8781, type: "commercial", tier: 1, pop: "約 266 萬（都會區 930 萬）", tags: ["商業金融", "北美鐵路與航空樞紐"], desc: "位於密西根湖畔的美國中西部商業心臟，全球最大期貨與衍生性金融商品交易所所在地，並為北美大陸最關鍵的鐵路貨運與歐海爾國際航空轉運中心。" },
+      { id: "US-SFO", zh: "舊金山", en: "San Francisco", country: "美國", region: "加州", lon: -122.4194, lat: 37.7749, type: "commercial", tier: 1, pop: "約 81 萬（灣區 760 萬）", tags: ["AI 與科技金融", "深水良港"], desc: "舊金山灣區與矽谷北端門戶，2026年全球生成式人工智慧研發、創投資本與半導體軟體設計的核心聚集地，並具備優良天然深水港灣。" },
+      { id: "US-HOU", zh: "休士頓", en: "Houston", country: "美國", region: "德州", lon: -95.3698, lat: 29.7604, type: "port", tier: 1, pop: "約 232 萬（都會區 750 萬）", tags: ["能源商業", "墨西哥灣戰略大港", "航太中心"], desc: "美國能源產業、液化天然氣出口與石化重鎮，休士頓港為美國外貿噸位最高港口之一，對2026年歐洲能源安全供應扮演關鍵角色，並設有 NASA 約翰遜太空中心。" },
+      { id: "US-SEA", zh: "西雅圖", en: "Seattle", country: "美國", region: "華盛頓州", lon: -122.3321, lat: 47.6062, type: "port", tier: 1, pop: "約 76 萬（都會區 410 萬）", tags: ["西北太平洋港口", "雲端與航太"], desc: "普吉特海灣深水良港，與塔科馬港共組西北貨櫃聯盟，同時是全球雲端運算、電商巨擘與商用航空製造的核心基地。" },
+      { id: "US-MIA", zh: "邁阿密", en: "Miami", country: "美國", region: "佛羅里達州", lon: -80.1918, lat: 25.7617, type: "port", tier: 1, pop: "約 46 萬（都會區 620 萬）", tags: ["拉美商貿金融", "郵輪與貨運港"], desc: "連結北美、加勒比海與拉丁美洲的金融與航運門戶，擁有全球最繁忙的郵輪母港與重要空海聯運轉運中心。" },
+      { id: "US-ANC", zh: "安克拉治", en: "Anchorage", country: "美國", region: "阿拉斯加州", lon: -149.9003, lat: 61.2181, type: "port", tier: 1, pop: "約 29 萬（全州最大城）", tags: ["極地戰略節點", "貨運航空樞紐", "港口"], desc: "阿拉斯加人口與經濟核心，憑藉跨北極大圓航線地理位置，安克拉治為全球最重要的國際航空貨運中繼站之一，並兼具北太平洋軍事與補給港功能。" },
+      { id: "US-HNL", zh: "檀香山（火奴魯魯）", en: "Honolulu", country: "美國", region: "夏威夷州", lon: -157.8583, lat: 21.3069, type: "port", tier: 1, pop: "約 35 萬（歐胡島 100 萬）", tags: ["州首府", "中太平洋戰略港"], desc: "夏威夷州首府，坐落於歐胡島南岸，為印太司令部所在地及中太平洋海空補給樞紐，也是美國連結亞太與大洋洲的關鍵海洋門戶。" },
+      { id: "US-BOS", zh: "波士頓", en: "Boston", country: "美國", region: "麻薩諸塞州", lon: -71.0589, lat: 42.3601, type: "commercial", tier: 2, pop: "約 66 萬（都會區 495 萬）", tags: ["生技研發", "教育與資產管理", "港口"], desc: "新英格蘭地區經濟文化核心，匯集頂尖學府、生技醫藥聚落與資產管理業，波士頓港亦為大西洋岸重要歷史商港。" },
+      { id: "US-DAL", zh: "達拉斯", en: "Dallas", country: "美國", region: "德州", lon: -96.7970, lat: 32.7767, type: "commercial", tier: 2, pop: "約 132 萬（都會區 810 萬）", tags: ["企業總部聚落", "航空樞紐"], desc: "美國南部成長最迅速的商業金融與電信樞紐，近年吸引大量跨國企業總部與金融機構進駐，達拉斯—沃斯堡機場為美國內陸關鍵航運節點。" },
+      { id: "US-ATL", zh: "亞特蘭大", en: "Atlanta", country: "美國", region: "喬治亞州", lon: -84.3880, lat: 33.7490, type: "commercial", tier: 2, pop: "約 51 萬（都會區 635 萬）", tags: ["東南商業樞紐", "全球最繁忙機場"], desc: "美國東南部商貿、物流與媒體重鎮，擁有全球客運量最高之哈茨菲爾德—傑克遜亞特蘭大國際機場與美國疾管署總部。" },
+      { id: "US-PHL", zh: "費城", en: "Philadelphia", country: "美國", region: "賓夕法尼亞州", lon: -75.1652, lat: 39.9526, type: "major", tier: 2, pop: "約 155 萬（都會區 625 萬）", tags: ["主要城市", "醫藥與河港"], desc: "美國建國歷史名城與東岸東北走廊核心都會之一，擁有生技製藥產業與德拉瓦河重要深水商港。" },
+      { id: "US-PHX", zh: "鳳凰城", en: "Phoenix", country: "美國", region: "亞利桑那州", lon: -112.0740, lat: 33.4484, type: "major", tier: 2, pop: "約 167 萬（都會區 515 萬）", tags: ["先進半導體製造", "西南主要都會"], desc: "美國西南部人口成長最快的都會區，2026年已發展為北美先進晶圓製造、航太電子與資料中心戰略基地。" },
+      { id: "US-DEN", zh: "丹佛", en: "Denver", country: "美國", region: "科羅拉多州", lon: -104.9903, lat: 39.7392, type: "major", tier: 2, pop: "約 72 萬（都會區 305 萬）", tags: ["洛磯山脈樞紐", "航太國防"], desc: "美國山區時區最大城市，結合航太衛星產業、潔淨能源研發與大陸中央航空樞紐地位。" },
+      { id: "US-MSY", zh: "紐奧良", en: "New Orleans", country: "美國", region: "路易斯安那州", lon: -90.0715, lat: 29.9511, type: "port", tier: 2, pop: "約 36 萬（都會區 125 萬）", tags: ["密西西比河口大港", "糧食與能源出口"], desc: "扼守密西西比河出海口，為美國中西部穀物、化學品與能源進入墨西哥灣及歐洲航線的重要海河聯運港。" },
+      { id: "US-ORF", zh: "諾福克", en: "Norfolk", country: "美國", region: "維吉尼亞州", lon: -76.2859, lat: 36.8508, type: "port", tier: 2, pop: "約 23 萬（漢普頓錨地 180 萬）", tags: ["大西洋艦隊母港", "北約轉型司令部", "深水港"], desc: "全球規模最大海軍基地所在地，亦為北約盟軍轉型司令部（ACT）駐地，維吉尼亞港具備極佳深水貨櫃與煤炭出口能力。" },
+      { id: "US-SAN", zh: "聖地牙哥", en: "San Diego", country: "美國", region: "加州", lon: -117.1611, lat: 32.7157, type: "port", tier: 2, pop: "約 139 萬（都會區 330 萬）", tags: ["太平洋戰略軍港", "生技聚落"], desc: "加州南端深水港城市，美國太平洋艦隊重要母港，同時擁有發達的生物科技、無線通訊與跨美墨邊境貿易產業。" },
+      { id: "US-AUS", zh: "奧斯汀", en: "Austin", country: "美國", region: "德州", lon: -97.7431, lat: 30.2672, type: "commercial", tier: 2, pop: "約 99 萬（都會區 255 萬）", tags: ["德州首府", "半導體與電動車研發"], desc: "德州首府與新興科技商業中心，集中半導體設計製造、電動車總部與 AI 雲端運算基地。" },
+      { id: "US-DET", zh: "底特律", en: "Detroit", country: "美國", region: "密西根州", lon: -83.0458, lat: 42.3314, type: "major", tier: 3, pop: "約 63 萬（都會區 435 萬）", tags: ["汽車與電動車工業", "五大湖邊境門戶"], desc: "北美汽車與自動駕駛製造核心，並憑藉底特律河連接五大湖航道與加拿大溫莎形成跨國工業走廊。" },
+      { id: "US-BAL", zh: "巴爾的摩", en: "Baltimore", country: "美國", region: "馬里蘭州", lon: -76.6122, lat: 39.2904, type: "port", tier: 3, pop: "約 56 萬（都會區 285 萬）", tags: ["切薩皮克灣深水港", "汽車滾裝港"], desc: "切薩皮克灣北端重要工業與商業港口，2026年持續作為美歐汽車進出口與大宗物資重要通道。" },
+      { id: "US-MSP", zh: "明尼阿波利斯", en: "Minneapolis", country: "美國", region: "明尼蘇達州", lon: -93.2650, lat: 44.9778, type: "major", tier: 3, pop: "約 43 萬（雙城都會區 375 萬）", tags: ["醫療器材商業", "北部農業金融"], desc: "美國中北部核心商業都市，擁有醫療器械、零售總部與大宗農產期貨交易體系。" },
+      { id: "US-LAS", zh: "拉斯維加斯", en: "Las Vegas", country: "美國", region: "內華達州", lon: -115.1398, lat: 36.1699, type: "major", tier: 3, pop: "約 67 萬（都會區 235 萬）", tags: ["國際會展中心", "觀光樞紐"], desc: "美國西南部國際會展（如 CES）與旅宿經濟重鎮，近年積極轉型太陽能再生能源與體育娛樂中心。" },
+      { id: "US-SJU", zh: "聖胡安", en: "San Juan", country: "美國（波多黎各）", region: "加勒比海", lon: -66.1057, lat: 18.4655, type: "port", tier: 2, pop: "約 34 萬（都會區 205 萬）", tags: ["首府", "加勒比海樞紐港"], desc: "波多黎各首府與加勒比海東部最大海空轉運中心，在製藥製造與大西洋南緣航運監控具重要地位。" },
+
+      // --- WESTERN EUROPE ---
+      { id: "EU-LON", zh: "倫敦", en: "London", country: "英國", region: "大倫敦", lon: -0.1276, lat: 51.5072, type: "capital", tier: 1, pop: "約 900 萬（都會區 1,490 萬）", tags: ["英國首都", "全球外匯與金融中心", "泰晤士河口港群"], desc: "英國首都與全球頂級金融、法律、保險及航運定價中樞，匯聚倫敦金融城與金絲雀碼頭，在2026年持續主導歐洲資本市場與國防外交情報合作。" },
+      { id: "EU-MAN", zh: "曼徹斯特", en: "Manchester", country: "英國", region: "英格蘭西北部", lon: -2.2426, lat: 53.4808, type: "commercial", tier: 2, pop: "約 58 萬（大曼徹斯特 290 萬）", tags: ["英格蘭北方商業引擎", "材料與數位產業"], desc: "英國北方經濟引擎核心，以石墨烯先進材料研發、金融科技、媒體聚落及國際航空連結聞名。" },
+      { id: "EU-EDI", zh: "愛丁堡", en: "Edinburgh", country: "英國", region: "蘇格蘭", lon: -3.1883, lat: 55.9533, type: "major", tier: 2, pop: "約 53 萬（都會區 92 萬）", tags: ["蘇格蘭首府", "資產管理與AI研究"], desc: "蘇格蘭首府，歐洲重要資產管理與銀行業重鎮，並擁有頂尖人工智慧與再生能源研究體系。" },
+      { id: "EU-BHX", zh: "伯明罕", en: "Birmingham", country: "英國", region: "西密德蘭", lon: -1.8904, lat: 52.4862, type: "major", tier: 3, pop: "約 117 萬（都會區 295 萬）", tags: ["英國第二大城", "先進製造與鐵路樞紐"], desc: "英國中部交通與先進製造中心，連結倫敦與英格蘭北部的核心經濟走廊。" },
+      { id: "EU-SOU", zh: "南安普敦", en: "Southampton", country: "英國", region: "英格蘭南部", lon: -1.4044, lat: 50.9097, type: "port", tier: 3, pop: "約 26 萬", tags: ["英吉利海峽深水港", "汽車與郵輪樞紐"], desc: "英國南岸重要深水貨櫃港、汽車滾裝出口港及歐洲頂級郵輪母港。" },
+      { id: "EU-DUB", zh: "都柏林", en: "Dublin", country: "愛爾蘭", region: "倫斯特省", lon: -6.2603, lat: 53.3498, type: "capital", tier: 1, pop: "約 60 萬（大都柏林 150 萬）", tags: ["愛爾蘭首都", "科技與製藥歐洲總部", "港口"], desc: "愛爾蘭首都與歐盟英語系商貿門戶，集中美國科技巨擘與全球頂尖製藥企業歐洲總部，都柏林港處理愛爾蘭過半海運貿易。" },
+      { id: "EU-PAR", zh: "巴黎", en: "Paris", country: "法國", region: "法蘭西島", lon: 2.3522, lat: 48.8566, type: "capital", tier: 1, pop: "約 210 萬（大巴黎都會區 1,240 萬）", tags: ["法國首都", "歐陸金融與航太決策核心"], desc: "法國首都與歐洲大陸最重要金融、外交、航太與奢侈品商業中心，2026年持續扮演歐盟戰略自主與核能/AI產業核心引擎。" },
+      { id: "EU-MRS", zh: "馬賽", en: "Marseille", country: "法國", region: "普羅旺斯", lon: 5.3698, lat: 43.2965, type: "port", tier: 2, pop: "約 88 萬（都會區 190 萬）", tags: ["法國最大海港", "地中海海底光纜節點"], desc: "地中海西北部最大商業港口，不僅連結北非與蘇伊士航線，更在2026年成為歐洲連接非洲、中東與亞洲最重要之國際海底光纜登陸樞紐。" },
+      { id: "EU-LYS", zh: "里昂", en: "Lyon", country: "法國", region: "奧弗涅-隆-阿爾卑斯", lon: 4.8357, lat: 45.7640, type: "commercial", tier: 2, pop: "約 53 萬（都會區 235 萬）", tags: ["生技化工商業", "國際刑警組織總部"], desc: "法國第二大經濟都會區，以生命科學、化工材料、清潔能源著稱，同時為國際刑警組織（INTERPOL）總部駐地。" },
+      { id: "EU-TLS", zh: "土魯斯", en: "Toulouse", country: "法國", region: "奧克西塔尼", lon: 1.4442, lat: 43.6047, type: "major", tier: 3, pop: "約 51 萬（都會區 145 萬）", tags: ["歐洲航太之都", "衛星與國防工業"], desc: "歐洲民航與太空工業心臟地帶，空中巴士總裝線與歐洲關鍵衛星系統研發基地。" },
+      { id: "EU-LEH", zh: "勒阿弗爾", en: "Le Havre", country: "法國", region: "諾曼第", lon: 0.1079, lat: 49.4944, type: "port", tier: 3, pop: "約 17 萬", tags: ["英吉利海峽貨櫃大港", "巴黎外港"], desc: "塞納河口深水貨櫃港，承擔大巴黎地區與法國北部最重要的跨大西洋貨運進出口。" },
+      { id: "EU-BRU", zh: "布魯塞爾", en: "Brussels", country: "比利時", region: "布魯塞爾首都區", lon: 4.3517, lat: 50.8503, type: "capital", tier: 1, pop: "約 125 萬（都會區 215 萬）", tags: ["比利時首都", "歐盟與北約總部"], desc: "比利時首都，同時為歐盟執委會、歐洲理事會與北大西洋公約組織（NATO）總部所在地，2026年歐洲政治與安全決策心臟。" },
+      { id: "EU-ANT", zh: "安特衛普", en: "Antwerp", country: "比利時", region: "法蘭德斯", lon: 4.4025, lat: 51.2194, type: "port", tier: 2, pop: "約 54 萬（都會區 120 萬）", tags: ["歐洲第二大港", "石化與鑽石貿易中心"], desc: "與布魯日港合併營運之安特衛普—布魯日港穩居歐洲第二大港，擁有歐洲最大整合式石化工業聚落與全球鑽石貿易中心。" },
+      { id: "EU-AMS", zh: "阿姆斯特丹", en: "Amsterdam", country: "荷蘭", region: "北荷蘭省", lon: 4.9041, lat: 52.3676, type: "capital", tier: 1, pop: "約 93 萬（都會區 250 萬）", tags: ["荷蘭首都", "泛歐交易所與網際網路交換中心"], desc: "荷蘭憲法首都，歐洲重要金融貿易、科技創新及全球最大網際網路交換中心（AMS-IX）所在地，史基浦機場為歐洲核心航空樞紐。" },
+      { id: "EU-RTM", zh: "鹿特丹", en: "Rotterdam", country: "荷蘭", region: "南荷蘭省", lon: 4.4777, lat: 51.9244, type: "port", tier: 1, pop: "約 67 萬（都會區 140 萬）", tags: ["歐洲第一大港", "萊茵河出海口能源港"], desc: "歐洲吞吐量第一的深水超級港口，扼守萊茵河與馬斯河出海口，為2026年歐洲綠氫、液化天然氣與貨櫃物流進入德國與中歐的總閘門。" },
+      { id: "EU-LUX", zh: "盧森堡市", en: "Luxembourg City", country: "盧森堡", region: "盧森堡", lon: 6.1319, lat: 49.6116, type: "capital", tier: 2, pop: "約 13.5 萬", tags: ["盧森堡首都", "歐元區投資基金中心"], desc: "盧森堡大公國首都，歐洲法院、歐洲投資銀行駐地，並為全球僅次於美國的第二大投資基金註冊中心。" },
+      { id: "EU-MCO", zh: "摩納哥", en: "Monaco", country: "摩納哥", region: "蔚藍海岸", lon: 7.4246, lat: 43.7384, type: "capital", tier: 3, pop: "約 3.9 萬", tags: ["微型主權國首都", "私人銀行與海港"], desc: "地中海沿岸微型公國，以高密度私人財富管理、海洋科技及國際頂級郵輪遊艇港聞名。" },
+
+      // --- CENTRAL EUROPE ---
+      { id: "EU-BER", zh: "柏林", en: "Berlin", country: "德國", region: "柏林邦", lon: 13.4050, lat: 52.5200, type: "capital", tier: 1, pop: "約 380 萬（都會區 620 萬）", tags: ["德國首都", "歐洲新創與政治中心"], desc: "德國聯邦首都與歐盟人口最多城市，結合聯邦政治決策、軟體新創生態及中東歐走廊連結功能。" },
+      { id: "EU-FRA", zh: "法蘭克福", en: "Frankfurt", country: "德國", region: "黑森邦", lon: 8.6821, lat: 50.1109, type: "commercial", tier: 1, pop: "約 77 萬（萊茵-美因 590 萬）", tags: ["歐洲央行總部", "歐元區金融心臟"], desc: "歐洲中央銀行（ECB）、德國聯邦銀行與法蘭克福證交所所在地，亦是世界頂級網路交換節點（DE-CIX）與歐陸航空轉運核心。" },
+      { id: "EU-HAM", zh: "漢堡", en: "Hamburg", country: "德國", region: "漢堡邦", lon: 9.9937, lat: 53.5511, type: "port", tier: 1, pop: "約 191 萬（都會區 540 萬）", tags: ["德國第一大港", "海運與航太工業"], desc: "易北河畔德國最大海港與第二大城，連結北海與中東歐鐵路網，同時聚集大型空中巴士工廠與離岸風電管理中心。" },
+      { id: "EU-MUC", zh: "慕尼黑", en: "Munich", country: "德國", region: "巴伐利亞邦", lon: 11.5820, lat: 48.1351, type: "commercial", tier: 2, pop: "約 152 萬（都會區 620 萬）", tags: ["高科技與國防工業", "慕尼黑安全會議"], desc: "德國南部經濟強權中心，匯聚汽車、半導體、航太國防及保險巨擘，每年舉辦全球高度矚目的慕尼黑安全會議（MSC）。" },
+      { id: "EU-CGN", zh: "科隆", en: "Cologne", country: "德國", region: "北萊茵-威斯伐倫邦", lon: 6.9603, lat: 50.9375, type: "major", tier: 3, pop: "約 109 萬（萊茵-魯爾 1,100 萬）", tags: ["萊茵河內河港", "媒體與工業核心"], desc: "萊茵-魯爾都會帶關鍵城市，兼具化學、汽車、媒體及歐洲太空總署太空人中心據點。" },
+      { id: "EU-ZRH", zh: "蘇黎世", en: "Zurich", country: "瑞士", region: "蘇黎世州", lon: 8.5417, lat: 47.3769, type: "commercial", tier: 1, pop: "約 45 萬（都會區 145 萬）", tags: ["全球財富管理之都", "頂尖科研樞紐"], desc: "瑞士最大城市與全球最頂尖銀行、保險及財富管理中心，蘇黎世聯邦理工學院（ETH）持續領跑歐洲AI與機器人研發。" },
+      { id: "EU-BRN", zh: "伯恩", en: "Bern", country: "瑞士", region: "伯恩州", lon: 7.4474, lat: 46.9480, type: "capital", tier: 2, pop: "約 14 萬（都會區 42 萬）", tags: ["瑞士聯邦政府所在地", "中立外交"], desc: "瑞士事實上的聯邦首都（聯邦城），萬國郵政聯盟總部所在，為阿爾卑斯山北麓重要的行政與鐘錶精密製造區域中心。" },
+      { id: "EU-GVA", zh: "日內瓦", en: "Geneva", country: "瑞士", region: "日內瓦州", lon: 6.1432, lat: 46.2044, type: "commercial", tier: 2, pop: "約 21 萬（都會區 63 萬）", tags: ["國際組織外交中心", "大宗商品貿易"], desc: "聯合國歐洲總部、WTO、WHO 與 CERN 所在地，同時主導全球大宗商品與能源貿易融資。" },
+      { id: "EU-VAD", zh: "瓦杜茲", en: "Vaduz", country: "列支敦斯登", region: "萊茵河谷", lon: 9.5215, lat: 47.1410, type: "capital", tier: 3, pop: "約 5,800 人（全國 4 萬）", tags: ["首都", "精密工具與銀行業"], desc: "列支敦斯登侯國首都，雖人口精簡，卻以極高人均產出、銀行財富管理與高端精密工業聞名。" },
+      { id: "EU-VIE", zh: "維也納", en: "Vienna", country: "奧地利", region: "維也納邦", lon: 16.3738, lat: 48.2082, type: "capital", tier: 1, pop: "約 202 萬（都會區 295 萬）", tags: ["奧地利首都", "聯合國與OPEC駐地", "中東歐門戶"], desc: "奧地利首都與中歐重要外交樞紐，聚集 IAEA、OSCE、UNIDO 與 OPEC 總部，扼守多瑙河進入巴爾幹與東歐通道。" },
+      { id: "EU-WAW", zh: "華沙", en: "Warsaw", country: "波蘭", region: "馬佐夫舍省", lon: 21.0122, lat: 52.2297, type: "capital", tier: 1, pop: "約 187 萬（都會區 330 萬）", tags: ["波蘭首都", "中東歐金融與防務樞紐"], desc: "波蘭首都與中東歐最大金融商業都市，2026年作為北約東翼防禦、能源轉型與重建後勤協調核心，戰略地位大幅提升。" },
+      { id: "EU-GDN", zh: "格但斯克", en: "Gdańsk", country: "波蘭", region: "濱海省", lon: 18.6466, lat: 54.3520, type: "port", tier: 2, pop: "約 49 萬（三聯市 105 萬）", tags: ["波羅的海深水大港", "能源接收門戶"], desc: "波蘭最大海港與波羅的海唯一能停靠超大型貨櫃輪的深水港（Baltic Hub），並肩負波蘭海上風電與天然氣進口重任。" },
+      { id: "EU-KRK", zh: "克拉科夫", en: "Kraków", country: "波蘭", region: "小波蘭省", lon: 19.9450, lat: 50.0647, type: "major", tier: 3, pop: "約 81 萬（都會區 155 萬）", tags: ["科技外包中心", "歷史名城"], desc: "波蘭第二大城與中歐重要跨國企業研發與共享服務中心。" },
+      { id: "EU-PRG", zh: "布拉格", en: "Prague", country: "捷克", region: "波希米亞", lon: 14.4378, lat: 50.0755, type: "capital", tier: 1, pop: "約 138 萬（都會區 275 萬）", tags: ["捷克首都", "歐盟太空計畫總署"], desc: "捷克首都與中歐高附加價值工業與資安科技樞紐，為歐盟太空計畫署（EUSPA）總部駐地。" },
+      { id: "EU-BTS", zh: "布拉提斯拉瓦", en: "Bratislava", country: "斯洛伐克", region: "西斯洛伐克", lon: 17.1077, lat: 48.1486, type: "capital", tier: 2, pop: "約 48 萬（都會區 73 萬）", tags: ["斯洛伐克首都", "多瑙河雙城走廊"], desc: "緊鄰維也納的斯洛伐克首都，集中汽車製造供應鏈、石化與多瑙河內河航運物流。" },
+      { id: "EU-BUD", zh: "布達佩斯", en: "Budapest", country: "匈牙利", region: "中匈牙利", lon: 19.0402, lat: 47.4979, type: "capital", tier: 1, pop: "約 169 萬（都會區 305 萬）", tags: ["匈牙利首都", "多瑙河交通中心"], desc: "匈牙利首都，中歐電動車電池製造、製藥與區域物流匯流樞紐。" },
+      { id: "EU-LJU", zh: "盧布爾雅那", en: "Ljubljana", country: "斯洛維尼亞", region: "中斯洛維尼亞", lon: 14.5058, lat: 46.0569, type: "capital", tier: 2, pop: "約 30 萬（都會區 55 萬）", tags: ["斯洛維尼亞首都", "阿爾卑斯—巴爾幹交匯"], desc: "斯洛維尼亞政治與科教中樞，位居阿爾卑斯山與亞得里亞海走廊交界。" },
+      { id: "EU-KOP", zh: "科佩爾", en: "Koper", country: "斯洛維尼亞", region: "伊斯特拉半島", lon: 13.7302, lat: 45.5481, type: "port", tier: 3, pop: "約 5.4 萬", tags: ["亞得里亞海北端深水港", "中歐出海口"], desc: "斯洛維尼亞唯一商用海港，為奧地利、匈牙利、捷克與斯洛伐克進入地中海與蘇伊士航線的重要捷徑港。" },
+
+      // --- NORTHERN EUROPE & BALTICS ---
+      { id: "EU-REK", zh: "雷克雅維克", en: "Reykjavík", country: "冰島", region: "首都區", lon: -21.9426, lat: 64.1466, type: "capital", tier: 1, pop: "約 14 萬（首都區 25 萬）", tags: ["冰島首都", "北大西洋門戶港", "地熱能源"], desc: "全球緯度最高主權國家首都，扼守格陵蘭—冰島—英國（GIUK）海空監視線，擁有100%再生電力與高密度綠色資料中心。" },
+      { id: "EU-OSL", zh: "奧斯陸", en: "Oslo", country: "挪威", region: "東挪威", lon: 10.7522, lat: 59.9139, type: "capital", tier: 1, pop: "約 72 萬（都會區 155 萬）", tags: ["挪威首都", "海事金融與主權基金"], desc: "挪威首都與全球最大主權財富基金（GPFG）管理中心，集中海運保險、電動交通與能源轉型投資總部。" },
+      { id: "EU-BGO", zh: "卑爾根", en: "Bergen", country: "挪威", region: "西挪威", lon: 5.3221, lat: 60.3913, type: "port", tier: 2, pop: "約 29 萬（都會區 43 萬）", tags: ["北海能源基地港", "水產與海事研究"], desc: "挪威西岸門戶與北海離岸油氣、海上風電及北極航運研究核心港口。" },
+      { id: "EU-STO", zh: "斯德哥爾摩", en: "Stockholm", country: "瑞典", region: "斯德哥爾摩省", lon: 18.0686, lat: 59.3293, type: "capital", tier: 1, pop: "約 99 萬（都會區 245 萬）", tags: ["瑞典首都", "北歐金融與軟體獨角獸中心"], desc: "建於14座島嶼上的北歐最大金融與科技創新首都，擁有密集的電信、金融科技與防務科技產業。" },
+      { id: "EU-GOT", zh: "哥特堡", en: "Gothenburg", country: "瑞典", region: "西約塔蘭", lon: 11.9746, lat: 57.7089, type: "port", tier: 2, pop: "約 61 萬（都會區 109 萬）", tags: ["北歐最大貨運港", "汽車工業樞紐"], desc: "斯堪地那維亞半島吞吐量最高海港，扼守卡特加特海峽，並為富豪（Volvo）等重型車輛與電池研發基地。" },
+      { id: "EU-HEL", zh: "赫爾辛基", en: "Helsinki", country: "芬蘭", region: "新地區", lon: 24.9384, lat: 60.1699, type: "capital", tier: 1, pop: "約 68 萬（都會區 158 萬）", tags: ["芬蘭首都", "芬蘭灣港口", "量子與6G研發"], desc: "芬蘭首都與波羅的海東北端港口樞紐，2026年在量子運算、6G通訊與北約北翼民防韌性扮演關鍵角色。" },
+      { id: "EU-CPH", zh: "哥本哈根", en: "Copenhagen", country: "丹麥", region: "首都大區", lon: 12.5683, lat: 55.6761, type: "capital", tier: 1, pop: "約 66 萬（厄勒都會區 215 萬）", tags: ["丹麥首都", "海峽咽喉", "離岸風電與生技"], desc: "坐落於西蘭島與阿邁厄島，控制波羅的海進出北海的厄勒海峽，聚集馬士基航運總部、離岸風電與製藥產業。" },
+      { id: "EU-TLL", zh: "塔林", en: "Tallinn", country: "愛沙尼亞", region: "哈爾尤縣", lon: 24.7536, lat: 59.4370, type: "capital", tier: 2, pop: "約 46 萬", tags: ["愛沙尼亞首都", "北約網路防禦中心", "波羅的海港"], desc: "全球數位政務先驅城市，並設有北約合作網路防禦卓越中心（CCDCOE），港口與赫爾辛基構成緊密海上走廊。" },
+      { id: "EU-RIX", zh: "里加", en: "Riga", country: "拉脫維亞", region: "里加灣", lon: 24.1052, lat: 56.9496, type: "capital", tier: 2, pop: "約 60 萬（都會區 100 萬）", tags: ["拉脫維亞首都", "波羅的海商業與航空樞紐"], desc: "波羅的海三國人口最多城市與金融貿易中心，里加自由港為區域木材、糧食與貨櫃重要轉運站。" },
+      { id: "EU-VNO", zh: "維爾紐斯", en: "Vilnius", country: "立陶宛", region: "維爾紐斯縣", lon: 25.2797, lat: 54.6872, type: "capital", tier: 2, pop: "約 60 萬（都會區 85 萬）", tags: ["立陶宛首都", "歐洲金融科技與雷射產業"], desc: "立陶宛首都，近年迅速躍升為歐盟主要金融科技執照發放中心，並具世界領先的超快雷射與光電產業。" },
+      { id: "EU-KLJ", zh: "克萊佩達", en: "Klaipėda", country: "立陶宛", region: "波羅的海東岸", lon: 21.1443, lat: 55.7033, type: "port", tier: 3, pop: "約 16 萬", tags: ["波羅的海不凍深水港", "LNG接收港"], desc: "立陶宛唯一海港與北歐少數終年不凍港，建有浮動液化天然氣（LNG）接收終端，保障波羅的海三國能源自主。" },
+
+      // --- SOUTHERN EUROPE & MEDITERRANEAN ---
+      { id: "EU-MAD", zh: "馬德里", en: "Madrid", country: "西班牙", region: "馬德里自治區", lon: -3.7038, lat: 40.4168, type: "capital", tier: 1, pop: "約 335 萬（都會區 685 萬）", tags: ["西班牙首都", "歐盟—拉美資本橋樑"], desc: "伊比利半島中央的西班牙首都，歐盟第二大都市，為歐洲銀行、電信與基礎建設企業投資拉丁美洲的核心總部節點。" },
+      { id: "EU-BCN", zh: "巴塞隆納", en: "Barcelona", country: "西班牙", region: "加泰隆尼亞", lon: 2.1734, lat: 41.3851, type: "port", tier: 1, pop: "約 168 萬（都會區 570 萬）", tags: ["地中海門戶大港", "商業會展與超級電腦中心"], desc: "西地中海頂尖貨櫃與郵輪港口、歐洲移動通訊大會（MWC）主辦地及歐洲超級電腦（MareNostrum）節點。" },
+      { id: "EU-VLC", zh: "瓦倫西亞", en: "Valencia", country: "西班牙", region: "瓦倫西亞自治區", lon: -0.3763, lat: 39.4699, type: "port", tier: 3, pop: "約 82 萬（都會區 160 萬）", tags: ["西班牙第一大貨櫃港", "地中海西岸樞紐"], desc: "地中海西岸貨櫃吞吐量最繁忙的港口之一，主導伊比利半島與地中海轉運貿易。" },
+      { id: "EU-BIO", zh: "畢爾包", en: "Bilbao", country: "西班牙", region: "巴斯克自治區", lon: -2.9350, lat: 43.2630, type: "port", tier: 3, pop: "約 35 萬（都會區 105 萬）", tags: ["比斯開灣大港", "能源與工業重鎮"], desc: "西班牙北部大西洋岸最重要港口與精密機械、離岸能源工程中心。" },
+      { id: "EU-SVQ", zh: "塞維亞", en: "Seville", country: "西班牙", region: "安達魯西亞", lon: -5.9845, lat: 37.3891, type: "major", tier: 3, pop: "約 69 萬（都會區 155 萬）", tags: ["南部主要城市", "航太與太陽能中心"], desc: "西班牙南部經濟文化中心，匯集軍用運輸機總裝與大規模聚光太陽能基地。" },
+      { id: "EU-LIS", zh: "里斯本", en: "Lisbon", country: "葡萄牙", region: "里斯本大區", lon: -9.1393, lat: 38.7223, type: "capital", tier: 1, pop: "約 56 萬（都會區 290 萬）", tags: ["葡萄牙首都", "大西洋海纜與港口門戶"], desc: "歐亞大陸最西端首都，扼守大西洋航道，2026年成為歐洲連接美洲與西非海底光纜與海洋監測（EMSA）核心樞紐。" },
+      { id: "EU-OPO", zh: "波爾圖", en: "Porto", country: "葡萄牙", region: "北部大區", lon: -8.6291, lat: 41.1579, type: "commercial", tier: 3, pop: "約 25 萬（都會區 175 萬）", tags: ["葡萄牙北部商業中心", "製造與科技聚落"], desc: "葡萄牙第二大經濟體核心，聚集紡織精密製造、軟體研發與萊紹埃斯港外貿體系。" },
+      { id: "EU-AND", zh: "安道爾城", en: "Andorra la Vella", country: "安道爾", region: "庇里牛斯山脈", lon: 1.5218, lat: 42.5063, type: "capital", tier: 3, pop: "約 2.4 萬（全國 8.5 萬）", tags: ["安道爾首都", "山間商業微國"], desc: "歐洲海拔最高首都，介於法國與西班牙之間，以跨境零售與銀行業聞名。" },
+      { id: "EU-ROM", zh: "羅馬", en: "Rome", country: "義大利", region: "拉齊奧大區", lon: 12.4964, lat: 41.9028, type: "capital", tier: 1, pop: "約 275 萬（都會區 435 萬）", tags: ["義大利首都", "聯合國糧農組織總部"], desc: "義大利共和國首都，同時為聯合國糧農組織（FAO）與世界糧食計畫署（WFP）總部所在地，外交與航太國防決策中樞。" },
+      { id: "EU-MIL", zh: "米蘭", en: "Milan", country: "義大利", region: "倫巴底大區", lon: 9.1900, lat: 45.4642, type: "commercial", tier: 1, pop: "約 137 萬（都會區 520 萬）", tags: ["義大利金融商業心臟", "2026冬奧主辦城市"], desc: "義大利證交所與跨國銀行總部所在地，歐洲製造設計與金融強權城市，2026年2月與柯蒂納丹佩佐共同主辦冬季奧運會。" },
+      { id: "EU-GOA", zh: "熱那亞", en: "Genoa", country: "義大利", region: "利古里亞", lon: 8.9463, lat: 44.4056, type: "port", tier: 2, pop: "約 56 萬（都會區 83 萬）", tags: ["義大利第一大貨櫃港", "造船與海纜登陸"], desc: "利古里亞海深水商港，服務義大利北部工業區與瑞士轉運貿易，擁有深厚造船與海運工程實力。" },
+      { id: "EU-NAP", zh: "拿坡里", en: "Naples", country: "義大利", region: "坎帕尼亞", lon: 14.2681, lat: 40.8518, type: "port", tier: 2, pop: "約 91 萬（都會區 310 萬）", tags: ["南義大利大港", "北約聯合部隊司令部"], desc: "第勒尼安海重要商業與客運港口，亦為北約盟軍聯合部隊司令部（JFC Naples）駐地，負責監控地中海與南翼安全。" },
+      { id: "EU-VCE", zh: "威尼斯", en: "Venice", country: "義大利", region: "威尼托大區", lon: 12.3155, lat: 45.4408, type: "port", tier: 3, pop: "約 25 萬", tags: ["亞得里亞海北岸港口", "文化遺產與海防工程"], desc: "亞得里亞海北端歷史海港與工業港（馬爾蓋拉），以 MOSE 防洪工程與海洋環境治理備受關注。" },
+      { id: "EU-VAT", zh: "梵蒂岡城", en: "Vatican City", country: "梵蒂岡", region: "羅馬城內", lon: 12.4534, lat: 41.9029, type: "capital", tier: 3, pop: "約 800 人", tags: ["主權城國首都", "全球宗教外交樞紐"], desc: "全球領土面積最小的主權國家與羅馬教廷所在地，具有獨特國際外交影響力。" },
+      { id: "EU-SMR", zh: "聖馬利諾", en: "San Marino", country: "聖馬利諾", region: "蒂塔諾山", lon: 12.4578, lat: 43.9424, type: "capital", tier: 3, pop: "約 4,100 人（全國 3.4 萬）", tags: ["共和國首都", "歐洲最古老共和國"], desc: "位於義大利半島中北部的內陸微型主權共和國。" },
+      { id: "EU-MLA", zh: "法勒他", en: "Valletta", country: "馬爾他", region: "馬爾他島", lon: 14.5146, lat: 35.8989, type: "capital", tier: 2, pop: "約 6,000 人（都會區 48 萬）", tags: ["馬爾他首都", "地中海咽喉轉運港"], desc: "坐落於地中海正中央馬爾他島上的首都與深水大港，全球重要船舶註冊與地中海航線中繼站。" },
+      { id: "EU-ATH", zh: "雅典", en: "Athens", country: "希臘", region: "阿提卡大區", lon: 23.7275, lat: 37.9838, type: "capital", tier: 1, pop: "約 64 萬（都會區 315 萬）", tags: ["希臘首都", "比雷埃夫斯東地中海大港"], desc: "希臘首都與全球最大商船隊營運總部集中地，鄰近的比雷埃夫斯港為東地中海最具規模的貨櫃轉運樞紐。" },
+      { id: "EU-SKG", zh: "塞薩洛尼基", en: "Thessaloniki", country: "希臘", region: "中馬其頓", lon: 22.9444, lat: 40.6401, type: "port", tier: 2, pop: "約 32 萬（都會區 110 萬）", tags: ["愛琴海北岸戰略港", "巴爾幹出海口"], desc: "希臘第二大城與巴爾幹半島內陸諸國進入愛琴海的重要海鐵聯運門戶港。" },
+      { id: "EU-NIC", zh: "尼科西亞", en: "Nicosia", country: "賽普勒斯", region: "賽普勒斯島", lon: 33.3823, lat: 35.1856, type: "capital", tier: 2, pop: "約 34 萬（都會區）", tags: ["賽普勒斯首都", "東地中海交匯點"], desc: "東地中海島國賽普勒斯首都，歐盟最東南端核心行政與區域金融節點。" },
+      { id: "EU-LMS", zh: "利馬索爾", en: "Limassol", country: "賽普勒斯", region: "南岸", lon: 33.0413, lat: 34.7071, type: "port", tier: 3, pop: "約 24 萬", tags: ["全球第三大船管中心", "東地中海深水港"], desc: "賽普勒斯最繁忙商業海港與全球重要第三方船舶管理、海事金融服務中心。" },
+
+      // --- BALKANS & SOUTHEAST EUROPE ---
+      { id: "EU-ZAG", zh: "薩格勒布", en: "Zagreb", country: "克羅埃西亞", region: "薩格勒布盆地", lon: 15.9819, lat: 45.8150, type: "capital", tier: 2, pop: "約 77 萬（都會區 115 萬）", tags: ["克羅埃西亞首都", "中歐—亞得里亞走廊"], desc: "克羅埃西亞首都與商業中心，已全面整合歐元區與申根區，連結中歐與達爾馬提亞海岸。" },
+      { id: "EU-RJK", zh: "里耶卡", en: "Rijeka", country: "克羅埃西亞", region: "克瓦內爾灣", lon: 14.4422, lat: 45.3271, type: "port", tier: 3, pop: "約 11 萬", tags: ["亞得里亞海深水港", "能源管道終點"], desc: "克羅埃西亞最大商業海港，2026年持續擴建深水貨櫃碼頭與中歐石油／能源輸送起點。" },
+      { id: "EU-BEG", zh: "貝爾格勒", en: "Belgrade", country: "塞爾維亞", region: "多瑙河—薩瓦河交匯", lon: 20.4489, lat: 44.7866, type: "capital", tier: 2, pop: "約 138 萬（都會區 170 萬）", tags: ["塞爾維亞首都", "西巴爾幹交通心臟"], desc: "西巴爾幹最大城市與商業科技中心，扼守歐洲第十號走廊與多瑙河航運幹線。" },
+      { id: "EU-SJJ", zh: "塞拉耶佛", en: "Sarajevo", country: "波士尼亞與赫塞哥維納", region: "波士尼亞中部", lon: 18.4131, lat: 43.8563, type: "capital", tier: 2, pop: "約 28 萬（都會區 42 萬）", tags: ["首都", "巴爾幹東西文化交匯"], desc: "波士尼亞與赫塞哥維納首都，座落迪納拉阿爾卑斯山谷，為區域政治與服務業核心。" },
+      { id: "EU-TGD", zh: "波德戈里察", en: "Podgorica", country: "蒙特內哥羅", region: "澤塔平原", lon: 19.2594, lat: 42.4304, type: "capital", tier: 2, pop: "約 18 萬", tags: ["蒙特內哥羅首都", "行政與交通核心"], desc: "蒙特內哥羅首都與經濟樞紐，鄰近亞得里亞海巴爾港鐵路終點。" },
+      { id: "EU-PRN", zh: "普里斯提納", en: "Pristina", country: "科索沃", region: "巴爾幹中南部", lon: 21.1655, lat: 42.6629, type: "capital", tier: 2, pop: "約 22 萬（都會區 50 萬）", tags: ["科索沃首都", "青年軟體產業"], desc: "科索沃首都與行政經濟中心，近年發展資訊科技服務業。" },
+      { id: "EU-TIA", zh: "地拉那", en: "Tirana", country: "阿爾巴尼亞", region: "阿爾巴尼亞中部", lon: 19.8187, lat: 41.3275, type: "capital", tier: 2, pop: "約 52 萬（都會區 92 萬）", tags: ["阿爾巴尼亞首都", "亞得里亞東岸成長樞紐"], desc: "阿爾巴尼亞首都與商業核心，鄰近都拉斯港，是亞得里亞海東南岸投資與旅遊成長熱點。" },
+      { id: "EU-SKP", zh: "史高比耶", en: "Skopje", country: "北馬其頓", region: "瓦爾達爾河谷", lon: 21.4254, lat: 41.9981, type: "capital", tier: 2, pop: "約 53 萬", tags: ["北馬其頓首都", "巴爾幹南北通道"], desc: "北馬其頓首都與最大工商都市，處於塞爾維亞通往愛琴海塞薩洛尼基港的交通中軸。" },
+      { id: "EU-SOF", zh: "索菲亞", en: "Sofia", country: "保加利亞", region: "巴爾幹中東部", lon: 23.3219, lat: 42.6977, type: "capital", tier: 1, pop: "約 129 萬（都會區 165 萬）", tags: ["保加利亞首都", "2026歐元區新成員", "軟體與汽車電子"], desc: "保加利亞首都與巴爾幹重要資訊外包中心；隨著保加利亞於2026年1月正式採用歐元並完整融入申根，索菲亞與歐洲單一市場金融連結更趨緊密。" },
+      { id: "EU-VAR", zh: "瓦爾納", en: "Varna", country: "保加利亞", region: "黑海西岸", lon: 27.9147, lat: 43.2141, type: "port", tier: 3, pop: "約 33 萬", tags: ["黑海主要海港", "海軍與造船基地"], desc: "保加利亞黑海最大商用與海軍港口，監控黑海西部航運與能源管線安全。" },
+      { id: "EU-BUH", zh: "布加勒斯特", en: "Bucharest", country: "羅馬尼亞", region: "瓦拉幾亞平原", lon: 26.1025, lat: 44.4268, type: "capital", tier: 1, pop: "約 178 萬（都會區 235 萬）", tags: ["羅馬尼亞首都", "東南歐最大經濟都會", "資安產業"], desc: "東南歐最具規模商業都會與歐盟網路安全能力中心（ECCC）總部駐地，在區域能源與科技投資扮演關鍵角色。" },
+      { id: "EU-CND", zh: "康斯坦察", en: "Constanța", country: "羅馬尼亞", region: "黑海西岸", lon: 28.6348, lat: 44.1598, type: "port", tier: 2, pop: "約 27 萬（都會區 42 萬）", tags: ["黑海第一大港", "多瑙河—黑海運河門戶"], desc: "黑海規模最大深水貨櫃與穀物轉運港，連接多瑙河—黑海運河，2026年持續承擔中東歐及黑海大宗糧食與貨櫃運輸樞紐角色。" },
+
+      // --- EASTERN EUROPE & TRANSCONTINENTAL ---
+      { id: "EU-KIV", zh: "基希涅夫", en: "Chișinău", country: "摩爾多瓦", region: "摩爾多瓦中部", lon: 28.8638, lat: 47.0105, type: "capital", tier: 2, pop: "約 67 萬", tags: ["摩爾多瓦首都", "歐盟候選國核心"], desc: "摩爾多瓦政治經濟中心，連結羅馬尼亞與黑海北部走廊。" },
+      { id: "EU-IEV", zh: "基輔", en: "Kyiv", country: "烏克蘭", region: "第聶伯河流域", lon: 30.5234, lat: 50.4501, type: "capital", tier: 1, pop: "約 295 萬（戰前/都會區約 350 萬）", tags: ["烏克蘭首都", "東歐戰略重心", "防務與無人系統產業"], desc: "烏克蘭政治、經濟與科研中樞，2026年仍是歐洲安全架構、防務科技創新與能源韌性協調的核心焦點。" },
+      { id: "EU-ODS", zh: "奧德薩", en: "Odesa", country: "烏克蘭", region: "黑海北岸", lon: 30.7233, lat: 46.4825, type: "port", tier: 2, pop: "約 101 萬", tags: ["黑海戰略深水港", "全球糧食出口門戶"], desc: "烏克蘭最重要深水商港與黑海海運命脈，對全球小麥、玉米等糧食供應鏈具有無可取代的戰略重要性。" },
+      { id: "EU-LWO", zh: "利沃夫", en: "Lviv", country: "烏克蘭", region: "烏克蘭西部", lon: 24.0297, lat: 49.8397, type: "major", tier: 3, pop: "約 72 萬", tags: ["烏克蘭西部門戶", "IT研發與歐盟邊境走廊"], desc: "緊鄰波蘭邊境的烏克蘭西部最大城市，為國際組織駐點、軟體工程與跨歐盟鐵路物流轉接核心。" },
+      { id: "EU-MSQ", zh: "明斯克", en: "Minsk", country: "白俄羅斯", region: "白俄羅斯中部", lon: 27.5615, lat: 53.9006, type: "capital", tier: 2, pop: "約 200 萬", tags: ["白俄羅斯首都", "東歐平原交通節點"], desc: "白俄羅斯首都與最大工業城市，位於東歐平原連接中歐與莫斯科的陸上幹道上。" },
+      { id: "EU-MOW", zh: "莫斯科", en: "Moscow", country: "俄羅斯", region: "東歐平原", lon: 37.6173, lat: 55.7558, type: "capital", tier: 1, pop: "約 1,315 萬（都會區 1,850 萬）", tags: ["俄羅斯首都", "歐洲人口最多單一都會"], desc: "俄羅斯聯邦政治、軍事、金融與鐵路輻射總中樞，位於烏拉山脈以西之東歐平原。" },
+      { id: "EU-LED", zh: "聖彼得堡", en: "Saint Petersburg", country: "俄羅斯", region: "芬蘭灣", lon: 30.3351, lat: 59.9343, type: "port", tier: 1, pop: "約 560 萬（都會區 640 萬）", tags: ["波羅的海大港", "北極與造船門戶"], desc: "俄羅斯第二大城與芬蘭灣終端深水海港，集中破冰船造船廠、能源輸出與波羅的海航運設施。" },
+      { id: "EU-IST", zh: "伊斯坦堡", en: "Istanbul", country: "土耳其", region: "博斯普魯斯海峽", lon: 28.9784, lat: 41.0082, type: "commercial", tier: 1, pop: "約 1,590 萬", tags: ["歐亞雙洲商業大城", "黑海海峽咽喉港"], desc: "唯一橫跨歐洲與亞洲的超級大都會，扼守博斯普魯斯海峽與馬爾馬拉海，所有進出黑海船舶與大量歐亞航運必經的戰略商業港口節點。" },
+      { id: "EU-ANK", zh: "安卡拉", en: "Ankara", country: "土耳其", region: "安那托利亞中部", lon: 32.8597, lat: 39.9334, type: "capital", tier: 2, pop: "約 580 萬", tags: ["土耳其首都", "國防工業決策中心"], desc: "土耳其共和國首都，北約重要成員國行政、外交與航太防務工業集中地。" }
+    ];
+
+    // =========================================================================
+    // 3. 主要島嶼與海域地理標註 (提升放大後的地理細緻度)
+    // =========================================================================
+    const GEO_LABELS = [
+      // Oceans & Seas
+      { text: "NORTH ATLANTIC OCEAN // 北大西洋", lon: -38, lat: 41, kind: "sea", minZoom: 1 },
+      { text: "MEDITERRANEAN SEA // 地中海", lon: 15.5, lat: 35.0, kind: "sea", minZoom: 1.4 },
+      { text: "NORTH SEA // 北海", lon: 3.3, lat: 56.2, kind: "sea", minZoom: 2.0 },
+      { text: "BALTIC SEA // 波羅的海", lon: 19.6, lat: 57.6, kind: "sea", minZoom: 2.0 },
+      { text: "BLACK SEA // 黑海", lon: 34.0, lat: 43.3, kind: "sea", minZoom: 1.8 },
+      { text: "GULF OF MEXICO // 墨西哥灣", lon: -90.0, lat: 25.4, kind: "sea", minZoom: 1.5 },
+      { text: "NORWEGIAN SEA // 挪威海", lon: 3.0, lat: 67.5, kind: "sea", minZoom: 1.8 },
+
+      // Major Islands (Europe & USA)
+      { text: "大不列顛島", lon: -2.2, lat: 53.8, kind: "island", minZoom: 2.2 },
+      { text: "愛爾蘭島", lon: -7.9, lat: 53.2, kind: "island", minZoom: 2.2 },
+      { text: "冰島", lon: -18.8, lat: 65.0, kind: "island", minZoom: 1.4 },
+      { text: "法羅群島", lon: -6.9, lat: 62.1, kind: "island", minZoom: 2.5 },
+      { text: "斯瓦爾巴群島", lon: 19.0, lat: 78.2, kind: "island", minZoom: 1.8 },
+      { text: "西西里島", lon: 14.1, lat: 37.55, kind: "island", minZoom: 2.8 },
+      { text: "薩丁尼亞島", lon: 9.0, lat: 40.0, kind: "island", minZoom: 2.8 },
+      { text: "科西嘉島", lon: 9.1, lat: 42.15, kind: "island", minZoom: 3.2 },
+      { text: "巴利阿里群島", lon: 2.9, lat: 39.6, kind: "island", minZoom: 3.0 },
+      { text: "克里特島", lon: 24.9, lat: 35.2, kind: "island", minZoom: 2.8 },
+      { text: "賽普勒斯島", lon: 33.2, lat: 35.0, kind: "island", minZoom: 2.6 },
+      { text: "哥特蘭島", lon: 18.5, lat: 57.5, kind: "island", minZoom: 3.6 },
+      { text: "昔德蘭群島", lon: -1.2, lat: 60.4, kind: "island", minZoom: 3.4 },
+      { text: "夏威夷群島", lon: -156.5, lat: 20.6, kind: "island", minZoom: 1.1 },
+      { text: "阿留申群島", lon: -172.0, lat: 52.4, kind: "island", minZoom: 1.5 },
+      { text: "科迪亞克島", lon: -153.5, lat: 57.5, kind: "island", minZoom: 3.0 },
+      { text: "波多黎各", lon: -66.5, lat: 18.2, kind: "island", minZoom: 2.2 }
+    ];
+
+    // Sector quick-jump bounding targets [lon, lat, scaleMultiplier]
+    const SECTORS = {
+      "global":     { type: "reset" },
+      "us-main":    { lon: -96.5, lat: 38.5, k: 2.6 },
+      "us-pacific": { lon: -154.5, lat: 44.0, k: 2.1 },
+      "eu-all":     { lon: 13.0, lat: 52.5, k: 2.75 },
+      "eu-west":    { lon: 4.5, lat: 49.5, k: 5.2 },
+      "eu-med":     { lon: 13.5, lat: 39.8, k: 4.5 },
+      "eu-north":   { lon: 17.5, lat: 61.5, k: 4.1 }
+    };
+
+    const TYPE_META = {
+      capital:    { zh: "國家首都", color: "#f5c26b", code: "CAP" },
+      commercial: { zh: "商業樞紐", color: "#e07b39", code: "COM" },
+      port:       { zh: "港口城市", color: "#58b8b0", code: "PRT" },
+      major:      { zh: "主要城市", color: "#d2ae7e", code: "MET" }
+    };
+
+    // =========================================================================
+    // 4. 全域狀態與 DOM 參照
+    // =========================================================================
+    const state = {
+      filterType: "all",
+      showStates: true,
+      showIslands: true,
+      selectedCity: null,
+      currentTransform: d3.zoomIdentity,
+      width: window.innerWidth,
+      height: window.innerHeight - 58,
+      theaterIds: new Set(Object.keys(THEATER_COUNTRIES)),
+      cityProjections: new Map()
+    };
+
+    const svg = d3.select("#map-svg");
+    const tooltip = document.getElementById("map-tooltip");
+    const cityPanel = document.getElementById("city-panel");
+    const searchInput = document.getElementById("search-input");
+    const searchDropdown = document.getElementById("search-dropdown");
+
+    let projection, pathGenerator, zoomBehavior, gRoot, gGraticule, gCountries, gCoastGlow, gStates, gGeoLabels, gCities;
+    let worldCountriesFeatures = [];
+
+    // =========================================================================
+    // 5. 工具函式：資料載入（附多線備援 CDN）、時間與座標格式化
+    // =========================================================================
+    async function fetchJsonWithFallback(urls) {
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } catch (err) {
+          console.warn("CDN fallback:", url, err);
+        }
+      }
+      throw new Error("無法載入向量圖資，請確認網路連線或稍後重試。");
+    }
+
+    function formatCoord(lon, lat) {
+      const latStr = `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? "N" : "S"}`;
+      const lonStr = `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? "E" : "W"}`;
+      return `${latStr}  ${lonStr}`;
+    }
+
+    function updateClock() {
+      const now = new Date();
+      // Display realistic 2026 UTC operational clock
+      const pad = (n) => String(n).padStart(2, "0");
+      const str = `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC`;
+      document.getElementById("clock-readout").textContent = str;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    function resolveTheaterInfo(feature) {
+      const rawId = feature.id != null ? String(feature.id).padStart(3, "0") : "";
+      if (THEATER_COUNTRIES[rawId]) return { id: rawId, ...THEATER_COUNTRIES[rawId] };
+      const nameKey = (feature.properties?.name || "").trim().toLowerCase();
+      const mappedId = THEATER_BY_NAME[nameKey];
+      if (mappedId && THEATER_COUNTRIES[mappedId]) return { id: mappedId, ...THEATER_COUNTRIES[mappedId] };
+      return null;
+    }
+
+    function getCountryFill(feature) {
+      const info = resolveTheaterInfo(feature);
+      if (!info) return null;
+      const idx = parseInt(info.id, 10) || info.zh.charCodeAt(0);
+      return BROWN_SHADES[idx % BROWN_SHADES.length];
+    }
+
+    // =========================================================================
+    // 6. 地圖初始化與投影計算
+    // =========================================================================
+    function setupProjection() {
+      state.width = window.innerWidth;
+      state.height = window.innerHeight - 58;
+
+      // Rotate +35° so Hawaii/Alaska (-165°) through Europe (+45°) sits cleanly without antimeridian splits
+      projection = d3.geoNaturalEarth1().rotate([35, 0]);
+
+      // MultiPoint bounds covering Alaska/Hawaii to Eastern Europe
+      const operationalFrame = {
+        type: "MultiPoint",
+        coordinates: [
+          [-168, 19],
+          [-168, 70],
+          [-125, 24],
+          [44, 34],
+          [44, 70]
+        ]
+      };
+
+      const padX = Math.max(30, state.width * 0.03);
+      const padY = Math.max(26, state.height * 0.05);
+      projection.fitExtent([[padX, padY], [state.width - padX, state.height - padY]], operationalFrame);
+      pathGenerator = d3.geoPath(projection);
+    }
+
+    function drawMarkerShape(sel, type) {
+      // Tactical Mission: Impossible style geometric vector reticles
+      if (type === "capital") {
+        sel.append("circle")
+          .attr("class", "city-pulse")
+          .attr("r", 5);
+        sel.append("circle")
+          .attr("r", 6.2)
+          .attr("fill", "none")
+          .attr("stroke", "#f5c26b")
+          .attr("stroke-width", 1)
+          .attr("stroke-dasharray", "2.2 1.8");
+        sel.append("polygon")
+          .attr("points", "0,-4.4 4.4,0 0,4.4 -4.4,0")
+          .attr("fill", "#f5c26b")
+          .attr("stroke", "#120d08")
+          .attr("stroke-width", 0.7);
+      } else if (type === "commercial") {
+        sel.append("rect")
+          .attr("x", -4.8).attr("y", -4.8)
+          .attr("width", 9.6).attr("height", 9.6)
+          .attr("fill", "none")
+          .attr("stroke", "#e07b39")
+          .attr("stroke-width", 1.2);
+        sel.append("rect")
+          .attr("x", -2.2).attr("y", -2.2)
+          .attr("width", 4.4).attr("height", 4.4)
+          .attr("fill", "#e07b39");
+      } else if (type === "port") {
+        sel.append("polygon")
+          .attr("points", "0,-5.8 5,-2.9 5,2.9 0,5.8 -5,2.9 -5,-2.9")
+          .attr("fill", "none")
+          .attr("stroke", "#58b8b0")
+          .attr("stroke-width", 1.2);
+        sel.append("circle")
+          .attr("r", 2.4)
+          .attr("fill", "#58b8b0");
+      } else {
+        sel.append("circle")
+          .attr("r", 4.5)
+          .attr("fill", "none")
+          .attr("stroke", "#d2ae7e")
+          .attr("stroke-width", 1.1);
+        sel.append("circle")
+          .attr("r", 2.0)
+          .attr("fill", "#d2ae7e");
+      }
+
+      // Corner targeting brackets shown on hover / selection
+      sel.append("path")
+        .attr("class", "city-hover-bracket")
+        .attr("d", "M-9,-4 L-9,-9 L-4,-9 M4,-9 L9,-9 L9,-4 M9,4 L9,9 L4,9 M-4,9 L-9,9 L-9,4");
+    }
+
+    // =========================================================================
+    // 7. 標籤智慧防重疊與縮放渲染更新
+    // =========================================================================
+    function updateScaleAndLabels() {
+      const t = state.currentTransform;
+      const k = t.k;
+      document.getElementById("zoom-readout").textContent = `${k.toFixed(1)}x`;
+
+      // Keep city markers constant crisp screen size regardless of zoom
+      const invK = 1 / k;
+      gCities.selectAll(".city-node")
+        .attr("transform", (d) => {
+          const pt = state.cityProjections.get(d.id);
+          return pt ? `translate(${pt[0]}, ${pt[1]}) scale(${invK})` : "translate(-9999,-9999)";
+        });
+
+      // Keep geo labels crisp & fade in island labels based on zoom threshold
+      gGeoLabels.selectAll("text")
+        .attr("transform", (d) => {
+          const p = projection([d.lon, d.lat]);
+          return p ? `translate(${p[0]}, ${p[1]}) scale(${invK})` : "";
+        })
+        .style("opacity", (d) => {
+          if (d.kind === "island" && !state.showIslands) return 0;
+          if (d.kind === "sea" && !state.showIslands) return 0.25;
+          return k >= d.minZoom ? (d.kind === "sea" ? 0.52 : 0.78) : 0;
+        })
+        .style("font-size", (d) => d.kind === "sea" ? "10px" : "10.5px");
+
+      // Greedy screen-space collision avoidance for city labels
+      const placedBoxes = [];
+      const nodes = gCities.selectAll(".city-node").nodes();
+
+      // Sort priority: selected > tier 1 > tier 2 > tier 3
+      const sortedEntries = CITIES
+        .filter(c => state.filterType === "all" || c.type === state.filterType)
+        .sort((a, b) => {
+          if (state.selectedCity?.id === a.id) return -1;
+          if (state.selectedCity?.id === b.id) return 1;
+          if (a.tier !== b.tier) return a.tier - b.tier;
+          if (a.type === "capital" && b.type !== "capital") return -1;
+          if (b.type === "capital" && a.type !== "capital") return 1;
+          return 0;
+        });
+
+      const showLabelSet = new Set();
+      for (const c of sortedEntries) {
+        // Hide tier 3 labels when zoomed completely out unless filtered specifically
+        if (k < 1.8 && c.tier === 3 && state.filterType === "all" && state.selectedCity?.id !== c.id) {
+          continue;
+        }
+        const pt = state.cityProjections.get(c.id);
+        if (!pt) continue;
+        const sx = t.applyX(pt[0]);
+        const sy = t.applyY(pt[1]);
+        if (sx < -60 || sx > state.width + 60 || sy < -30 || sy > state.height + 30) continue;
+
+        const w = c.zh.length * 11 + 10;
+        const h = 15;
+        const box = { x1: sx + 8, y1: sy - 9, x2: sx + 8 + w, y2: sy - 9 + h };
+
+        let overlaps = false;
+        if (state.selectedCity?.id !== c.id) {
+          for (const b of placedBoxes) {
+            if (!(box.x2 < b.x1 || box.x1 > b.x2 || box.y2 < b.y1 || box.y1 > b.y2)) {
+              overlaps = true;
+              break;
+            }
+          }
+        }
+
+        if (!overlaps) {
+          placedBoxes.push(box);
+          showLabelSet.add(c.id);
+        }
+      }
+
+      gCities.selectAll(".city-node").each(function(d) {
+        const visible = state.filterType === "all" || d.type === state.filterType;
+        d3.select(this).style("display", visible ? null : "none");
+        d3.select(this).select(".city-label")
+          .style("opacity", showLabelSet.has(d.id) ? 1 : 0);
+      });
+
+      document.getElementById("visible-count").textContent = `${sortedEntries.length} NODES`;
+    }
+
+    // =========================================================================
+    // 8. 互動提示框 (Tooltip) 與右側城市情報面板
+    // =========================================================================
+    function showTooltip(event, htmlData) {
+      document.getElementById("tt-kicker").textContent = htmlData.kicker;
+      document.getElementById("tt-zh").textContent = htmlData.zh;
+      document.getElementById("tt-en").textContent = htmlData.en || "";
+      document.getElementById("tt-sub").innerHTML = htmlData.sub;
+      document.getElementById("tt-hint").textContent = htmlData.hint || "";
+      document.getElementById("tt-hint").style.display = htmlData.hint ? "block" : "none";
+
+      tooltip.classList.add("visible");
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      const pad = 16;
+      const rect = tooltip.getBoundingClientRect();
+      let left = event.clientX + 16;
+      let top = event.clientY + 16;
+      if (left + rect.width + pad > window.innerWidth) {
+        left = event.clientX - rect.width - 14;
+      }
+      if (top + rect.height + pad > window.innerHeight) {
+        top = event.clientY - rect.height - 14;
+      }
+      tooltip.style.left = `${Math.max(8, left)}px`;
+      tooltip.style.top = `${Math.max(66, top)}px`;
+    }
+
+    function hideTooltip() {
+      tooltip.classList.remove("visible");
+    }
+
+    function openCityPanel(city, shouldFly = false) {
+      state.selectedCity = city;
+      gCities.selectAll(".city-node").classed("selected", (d) => d.id === city.id);
+
+      const meta = TYPE_META[city.type];
+      document.getElementById("cp-node-id").textContent = `NODE // ${city.id} • ${meta.code}`;
+      document.getElementById("cp-title").textContent = city.zh;
+      document.getElementById("cp-subtitle").textContent = `${city.en} — ${city.country}`;
+      document.getElementById("cp-location").textContent = `${city.country}（${city.region}）`;
+      document.getElementById("cp-pop").textContent = city.pop;
+      document.getElementById("cp-coords").textContent = formatCoord(city.lon, city.lat);
+      document.getElementById("cp-role").textContent = `${meta.zh}（Tier ${city.tier} 核心）`;
+      document.getElementById("cp-desc").textContent = city.desc;
+
+      const badgesEl = document.getElementById("cp-badges");
+      badgesEl.innerHTML = city.tags.map(t => `<span class="cp-badge">${t}</span>`).join("");
+
+      cityPanel.classList.add("open");
+      cityPanel.setAttribute("aria-hidden", "false");
+      updateScaleAndLabels();
+
+      if (shouldFly) {
+        flyToCoord(city.lon, city.lat, Math.max(state.currentTransform.k, 5.2));
+      }
+    }
+
+    function closeCityPanel() {
+      state.selectedCity = null;
+      gCities.selectAll(".city-node").classed("selected", false);
+      cityPanel.classList.remove("open");
+      cityPanel.setAttribute("aria-hidden", "true");
+      updateScaleAndLabels();
+    }
+
+    function flyToCoord(lon, lat, k = 4) {
+      const pt = projection([lon, lat]);
+      if (!pt) return;
+      const targetTransform = d3.zoomIdentity
+        .translate(state.width / 2 - pt[0] * k, state.height / 2 - pt[1] * k)
+        .scale(k);
+
+      svg.transition()
+        .duration(850)
+        .ease(d3.easeCubicInOut)
+        .call(zoomBehavior.transform, targetTransform);
+    }
+
+    function resetView() {
+      svg.transition()
+        .duration(780)
+        .ease(d3.easeCubicInOut)
+        .call(zoomBehavior.transform, d3.zoomIdentity);
+    }
+
+    // =========================================================================
+    // 9. 主渲染引擎
+    // =========================================================================
+    async function initMap() {
+      setupProjection();
+
+      const worldPromise = fetchJsonWithFallback([
+        "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json",
+        "https://unpkg.com/world-atlas@2/countries-50m.json"
+      ]);
+
+      const usStatesPromise = fetchJsonWithFallback([
+        "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json",
+        "https://unpkg.com/us-atlas@3/states-10m.json"
+      ]).catch(() => null);
+
+      const [worldTopo, usStatesTopo] = await Promise.all([worldPromise, usStatesPromise]);
+
+      worldCountriesFeatures = topojson.feature(worldTopo, worldTopo.objects.countries).features;
+
+      // Build SVG Layers
+      svg.selectAll("*").remove();
+
+      const defs = svg.append("defs");
+      const glowFilter = defs.append("filter").attr("id", "coastGlow");
+      glowFilter.append("feGaussianBlur").attr("stdDeviation", "2.2").attr("result", "coloredBlur");
+      const feMerge = glowFilter.append("feMerge");
+      feMerge.append("feMergeNode").attr("in", "coloredBlur");
+      feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+      gRoot = svg.append("g").attr("class", "map-root");
+      gGraticule = gRoot.append("g").attr("class", "layer-graticule");
+      gCoastGlow = gRoot.append("g").attr("class", "layer-coast-glow");
+      gCountries = gRoot.append("g").attr("class", "layer-countries");
+      gStates = gRoot.append("g").attr("class", "layer-states");
+      gGeoLabels = gRoot.append("g").attr("class", "layer-geo-labels");
+      gCities = gRoot.append("g").attr("class", "layer-cities");
+
+      // 1. Graticule Coordinate Grid (10° step + major parallels/meridian)
+      const graticule = d3.geoGraticule().step([10, 10]);
+      gGraticule.append("path")
+        .datum(graticule())
+        .attr("class", "graticule")
+        .attr("d", pathGenerator);
+
+      const majorLines = d3.geoGraticule().step([30, 30]);
+      gGraticule.append("path")
+        .datum(majorLines())
+        .attr("class", "graticule-major")
+        .attr("d", pathGenerator);
+
+      // 2. Context Landmasses (non-theater surrounding world for geographic continuity)
+      const contextFeatures = worldCountriesFeatures.filter(f => !resolveTheaterInfo(f));
+      const theaterFeatures = worldCountriesFeatures.filter(f => !!resolveTheaterInfo(f));
+
+      gCountries.selectAll(".country-context")
+        .data(contextFeatures)
+        .join("path")
+        .attr("class", "country-context")
+        .attr("d", pathGenerator)
+        .on("mousemove", (event, d) => {
+          const rawId = d.id != null ? String(d.id).padStart(3, "0") : "";
+          const zhName = CONTEXT_NAMES[rawId];
+          if (!zhName) return;
+          showTooltip(event, {
+            kicker: "ADJACENT SECTOR // 鄰近地理區域",
+            zh: zhName,
+            en: d.properties?.name || "",
+            sub: "非美歐監控主題區（提供跨洲地理輪廓參照）"
+          });
+        })
+        .on("mouseleave", hideTooltip);
+
+      // 3. Coastline Glow for Theater Countries & Islands
+      gCoastGlow.selectAll(".coastline-glow")
+        .data(theaterFeatures)
+        .join("path")
+        .attr("class", "coastline-glow")
+        .attr("filter", "url(#coastGlow)")
+        .attr("d", pathGenerator);
+
+      // 4. Theater Countries (USA + All European Countries & Islands)
+      gCountries.selectAll(".country-theater")
+        .data(theaterFeatures)
+        .join("path")
+        .attr("class", "country-theater")
+        .attr("fill", d => getCountryFill(d))
+        .attr("d", pathGenerator)
+        .on("mouseenter", function(event, d) {
+          d3.select(this).classed("hovered", true).raise();
+        })
+        .on("mousemove", (event, d) => {
+          const info = resolveTheaterInfo(d);
+          if (!info) return;
+          showTooltip(event, {
+            kicker: info.region,
+            zh: info.zh,
+            en: info.en,
+            sub: `首都：<strong>${info.capital}</strong><br>${info.note}`,
+            hint: "滾輪縮放 / 雙擊或點擊城市節點檢視詳情"
+          });
+        })
+        .on("mouseleave", function() {
+          d3.select(this).classed("hovered", false);
+          hideTooltip();
+        })
+        .on("click", (event, d) => {
+          // Click on country gently zooms in if currently at overview scale, or closes panel if clicking open area
+          if (event.defaultPrevented) return;
+          const info = resolveTheaterInfo(d);
+          if (!info) return;
+          const bounds = pathGenerator.bounds(d);
+          const dx = bounds[1][0] - bounds[0][0];
+          const dy = bounds[1][1] - bounds[0][1];
+          const x = (bounds[0][0] + bounds[1][0]) / 2;
+          const y = (bounds[0][1] + bounds[1][1]) / 2;
+          // Special handling for Russia/USA so clicking Russia/USA doesn't zoom weirdly across the whole width
+          if (info.id === "840" || info.id === "643") {
+            const [mx, my] = d3.pointer(event, gRoot.node());
+            const k = Math.min(4.5, Math.max(2.2, state.currentTransform.k * 1.4));
+            svg.transition().duration(700).call(
+              zoomBehavior.transform,
+              d3.zoomIdentity.translate(state.width / 2 - mx * k, state.height / 2 - my * k).scale(k)
+            );
+            return;
+          }
+          const scale = Math.max(1.8, Math.min(8, 0.72 / Math.max(dx / state.width, dy / state.height)));
+          svg.transition().duration(750).ease(d3.easeCubicInOut).call(
+            zoomBehavior.transform,
+            d3.zoomIdentity.translate(state.width / 2 - scale * x, state.height / 2 - scale * y).scale(scale)
+          );
+        });
+
+      // 5. US Interior State Borders (only interior borders so 10m vs 50m coastlines never conflict)
+      if (usStatesTopo && usStatesTopo.objects?.states) {
+        const interiorStates = topojson.mesh(usStatesTopo, usStatesTopo.objects.states, (a, b) => a !== b);
+        gStates.append("path")
+          .datum(interiorStates)
+          .attr("class", "us-states-mesh")
+          .attr("d", pathGenerator);
+      }
+
+      // 6. Sea & Island Labels
+      gGeoLabels.selectAll("text")
+        .data(GEO_LABELS)
+        .join("text")
+        .attr("class", d => d.kind === "sea" ? "geo-label" : "island-label")
+        .text(d => d.text);
+
+      // 7. City Projections & Tactical Markers
+      state.cityProjections.clear();
+      CITIES.forEach(c => {
+        const p = projection([c.lon, c.lat]);
+        if (p) state.cityProjections.set(c.id, p);
+      });
+
+      const cityNodes = gCities.selectAll(".city-node")
+        .data(CITIES, d => d.id)
+        .join("g")
+        .attr("class", "city-node");
+
+      cityNodes.each(function(d) {
+        const sel = d3.select(this);
+        drawMarkerShape(sel, d.type);
+        sel.append("text")
+          .attr("class", `city-label tier-${d.tier}`)
+          .attr("x", 9)
+          .attr("y", 3.5)
+          .text(d.zh);
+      });
+
+      cityNodes
+        .on("mouseenter", function(event, d) {
+          d3.select(this).raise();
+          d3.select(this).select(".city-label").style("opacity", 1);
+          const meta = TYPE_META[d.type];
+          showTooltip(event, {
+            kicker: `${d.id} // ${meta.zh}`,
+            zh: d.zh,
+            en: d.en,
+            sub: `所屬國家：<strong>${d.country}</strong>（${d.region}）<br>人口規模：${d.pop}`,
+            hint: "點擊節點開啟完整戰略情報面板"
+          });
+        })
+        .on("mousemove", moveTooltip)
+        .on("mouseleave", function(event, d) {
+          hideTooltip();
+          updateScaleAndLabels();
+        })
+        .on("click", function(event, d) {
+          event.stopPropagation();
+          hideTooltip();
+          openCityPanel(d, false);
+        });
+
+      // 8. Zoom & Pan Behavior
+      zoomBehavior = d3.zoom()
+        .scaleExtent([1, 18])
+        .translateExtent([[-state.width * 0.6, -state.height * 0.5], [state.width * 1.6, state.height * 1.5]])
+        .on("zoom", (event) => {
+          state.currentTransform = event.transform;
+          gRoot.attr("transform", event.transform);
+          updateScaleAndLabels();
+        });
+
+      svg.call(zoomBehavior);
+
+      // Live Cursor Coordinate Readout
+      svg.on("mousemove", (event) => {
+        const [gx, gy] = state.currentTransform.invert(d3.pointer(event));
+        const lonLat = projection.invert([gx, gy]);
+        if (lonLat && !isNaN(lonLat[0]) && !isNaN(lonLat[1])) {
+          document.getElementById("coord-readout").textContent = formatCoord(lonLat[0], lonLat[1]);
+        }
+      });
+
+      svg.on("click", (event) => {
+        if (event.target === svg.node()) {
+          closeCityPanel();
+        }
+      });
+
+      updateScaleAndLabels();
+
+      // Dismiss Loading Screen
+      const loader = document.getElementById("loading-screen");
+      loader.classList.add("hidden");
+      setTimeout(() => { loader.style.display = "none"; }, 450);
+    }
+
+    // =========================================================================
+    // 10. UI 控制事件綁定 (篩選、搜尋、圖層、快速跳轉、鍵盤快捷鍵)
+    // =========================================================================
+    // Category Filter Buttons
+    document.querySelectorAll("#type-filters .filter-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#type-filters .filter-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.filterType = btn.dataset.filter;
+        updateScaleAndLabels();
+      });
+    });
+
+    // Layer Toggles
+    document.getElementById("toggle-states").addEventListener("click", function() {
+      state.showStates = !state.showStates;
+      this.classList.toggle("active", state.showStates);
+      gStates.style("display", state.showStates ? null : "none");
+    });
+
+    document.getElementById("toggle-islands").addEventListener("click", function() {
+      state.showIslands = !state.showIslands;
+      this.classList.toggle("active", state.showIslands);
+      updateScaleAndLabels();
+    });
+
+    // Zoom Buttons
+    document.getElementById("zoom-in").addEventListener("click", () => {
+      svg.transition().duration(320).call(zoomBehavior.scaleBy, 1.5);
+    });
+    document.getElementById("zoom-out").addEventListener("click", () => {
+      svg.transition().duration(320).call(zoomBehavior.scaleBy, 1 / 1.5);
+    });
+    document.getElementById("zoom-reset").addEventListener("click", resetView);
+
+    // Sector Quick Jump
+    document.querySelectorAll(".sector-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".sector-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const sec = SECTORS[btn.dataset.sector];
+        if (!sec) return;
+        if (sec.type === "reset") {
+          resetView();
+        } else {
+          flyToCoord(sec.lon, sec.lat, sec.k);
+        }
+      });
+    });
+
+    // City Intelligence Panel Controls
+    document.getElementById("cp-close").addEventListener("click", closeCityPanel);
+    document.getElementById("cp-focus").addEventListener("click", () => {
+      if (state.selectedCity) {
+        flyToCoord(state.selectedCity.lon, state.selectedCity.lat, 6.5);
+      }
+    });
+    document.getElementById("cp-next").addEventListener("click", () => {
+      const pool = CITIES.filter(c => state.filterType === "all" || c.type === state.filterType);
+      if (!pool.length) return;
+      const idx = state.selectedCity ? pool.findIndex(c => c.id === state.selectedCity.id) : -1;
+      const nextCity = pool[(idx + 1) % pool.length];
+      openCityPanel(nextCity, true);
+    });
+
+    // Search Autocomplete (Cities + Countries)
+    function buildSearchResults(query) {
+      const q = query.trim().toLowerCase();
+      if (!q) {
+        searchDropdown.classList.remove("open");
+        return;
+      }
+
+      const cityMatches = CITIES.filter(c =>
+        c.zh.toLowerCase().includes(q) ||
+        c.en.toLowerCase().includes(q) ||
+        c.country.toLowerCase().includes(q) ||
+        c.region.toLowerCase().includes(q)
+      ).slice(0, 8);
+
+      const countryMatches = Object.entries(THEATER_COUNTRIES)
+        .filter(([, v]) => v.zh.toLowerCase().includes(q) || v.en.toLowerCase().includes(q) || v.capital.toLowerCase().includes(q))
+        .slice(0, 4);
+
+      if (!cityMatches.length && !countryMatches.length) {
+        searchDropdown.innerHTML = `<div class="search-item" style="color:var(--text-muted);cursor:default;">查無符合「${query}」的美歐國家或城市</div>`;
+        searchDropdown.classList.add("open");
+        return;
+      }
+
+      let html = "";
+      cityMatches.forEach(c => {
+        const meta = TYPE_META[c.type];
+        html += `<div class="search-item" data-kind="city" data-id="${c.id}">
+          <span><strong style="color:${meta.color}">●</strong> ${c.zh} <small style="color:var(--text-muted)">${c.en}</small></span>
+          <span class="search-item-meta">${c.country} • ${meta.zh}</span>
+        </div>`;
+      });
+
+      countryMatches.forEach(([id, v]) => {
+        html += `<div class="search-item" data-kind="country" data-id="${id}">
+          <span><strong style="color:#c49052">■</strong> ${v.zh} <small style="color:var(--text-muted)">${v.en}</small></span>
+          <span class="search-item-meta">國家 • 首都:${v.capital}</span>
+        </div>`;
+      });
+
+      searchDropdown.innerHTML = html;
+      searchDropdown.classList.add("open");
+
+      searchDropdown.querySelectorAll(".search-item[data-kind]").forEach(item => {
+        item.addEventListener("click", () => {
+          const kind = item.dataset.kind;
+          const id = item.dataset.id;
+          searchDropdown.classList.remove("open");
+          if (kind === "city") {
+            const city = CITIES.find(c => c.id === id);
+            if (city) {
+              searchInput.value = city.zh;
+              openCityPanel(city, true);
+            }
+          } else {
+            const info = THEATER_COUNTRIES[id];
+            searchInput.value = info.zh;
+            // Find capital city in CITIES or feature centroid
+            const capCity = CITIES.find(c => c.country.includes(info.zh) && c.type === "capital") || CITIES.find(c => c.zh === info.capital);
+            if (capCity) {
+              flyToCoord(capCity.lon, capCity.lat, 4.2);
+            } else {
+              const feat = worldCountriesFeatures.find(f => resolveTheaterInfo(f)?.id === id);
+              if (feat) {
+                const c = d3.geoCentroid(feat);
+                flyToCoord(c[0], c[1], 4.2);
+              }
+            }
+          }
+        });
+      });
+    }
+
+    searchInput.addEventListener("input", (e) => buildSearchResults(e.target.value));
+    searchInput.addEventListener("focus", (e) => { if (e.target.value.trim()) buildSearchResults(e.target.value); });
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".search-wrap")) {
+        searchDropdown.classList.remove("open");
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        searchDropdown.classList.remove("open");
+        closeCityPanel();
+      }
+    });
+
+    // Responsive Resize
+    let resizeTimer;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        initMap();
+      }, 240);
+    });
+
+    // Start Application
+    initMap().catch(err => {
+      document.getElementById("loader-sub").innerHTML =
+        `<span style="color:#f87171;">初始化失敗：${err.message}</span><br>本網頁需連線讀取 TopoJSON 世界國界向量圖資，請確認網路連線正常後重新整理頁面。`;
+    });
+  </script>
+</body>
+</html>
